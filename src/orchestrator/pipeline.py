@@ -4,7 +4,7 @@ import asyncio
 
 from src.core.config import get_config
 from src.core.models import GenerateRequest, GenerateResponse, Source
-from src.db.operations import search_internal
+from src.db.operations import search_internal, get_chunk_embeddings
 from src.generation.embeddings import embed_batch, embed_text
 from src.generation.evidence import create_evidence_pack
 from src.generation.factcheck import fact_check_tweets
@@ -85,11 +85,18 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
     all_results = internal_results + web_results
     if all_results:
         print("🔢 Embedding results...")
-        result_texts = [r.content for r in all_results]
-        all_embeddings = embed_batch(result_texts)
 
-        internal_embeddings = all_embeddings[: len(internal_results)]
-        web_embeddings = all_embeddings[len(internal_results) :]
+        # Fetch stored embeddings for internal results by chunk_id
+        internal_chunk_ids = [r.meta.get("chunk_id") for r in internal_results]
+        internal_chunk_ids = [cid for cid in internal_chunk_ids if isinstance(cid, str)]
+        internal_embeddings = await get_chunk_embeddings(internal_chunk_ids)
+
+        # Compute embeddings only for web results
+        if web_results:
+            web_texts = [r.content for r in web_results]
+            web_embeddings = embed_batch(web_texts)
+        else:
+            web_embeddings = []
     else:
         internal_embeddings = []
         web_embeddings = []

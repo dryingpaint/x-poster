@@ -1,4 +1,8 @@
-"""Embedding generation using OpenAI (default) or local SentenceTransformers fallback."""
+"""Embedding generation using OpenAI (default) or local SentenceTransformers fallback.
+
+Note: No local caching; embeddings for internal chunks are stored in Postgres
+and fetched during retrieval to avoid recomputation.
+"""
 
 from typing import Optional
 
@@ -43,6 +47,7 @@ def embed_text(text: str) -> list[float]:
     """
     config = get_config()
     global _provider_logged
+    # Try OpenAI first (no local caching)
     try:
         client = get_openai_client()
         resp = client.embeddings.create(
@@ -55,7 +60,8 @@ def embed_text(text: str) -> list[float]:
             print(f"Embeddings provider: OpenAI {config.openai_embedding_model} (dim={config.embedding_dim})")
             _provider_logged = True
         return vector
-    except Exception:
+    except Exception as e:
+        print(f"OpenAI embeddings failed (single): {e}")
         # Fallback to local model
         embedder = get_embedder()
         embedding = embedder.encode(text, normalize_embeddings=True)
@@ -80,13 +86,13 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
 
     # Try OpenAI first in batches
     global _provider_logged
+    # Try OpenAI first (no local caching)
     try:
         client = get_openai_client()
         all_embeddings: list[list[float]] = []
-
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i + batch_size]
-            print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)}")
+            print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)} (OpenAI)")
             resp = client.embeddings.create(
                 model=config.openai_embedding_model,
                 input=batch_texts,
@@ -98,14 +104,14 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
             print(f"Embeddings provider: OpenAI {config.openai_embedding_model} (dim={config.embedding_dim})")
             _provider_logged = True
         return all_embeddings
-    except Exception:
+    except Exception as e:
+        print(f"OpenAI embeddings failed (batch): {e}")
         # Fallback to local model
         embedder = get_embedder()
-        all_embeddings = []
-
+        all_embeddings: list[list[float]] = []
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i + batch_size]
-            print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)}")
+            print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)} (Local)")
 
             # Truncate very long texts to avoid memory issues
             batch_texts = [text[:1500] if len(text) > 1500 else text for text in batch_texts]

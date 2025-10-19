@@ -100,21 +100,58 @@ async def search_internal(
             continue
         seen.add(chunk_id)
 
+        # Carry chunk_id in meta so downstream can fetch stored embeddings
+        meta = result.get("meta", {}) or {}
+        meta["chunk_id"] = str(chunk_id)
+
         merged.append(
             SearchResult(
                 source_id=f"internal_{chunk_id}",
                 content=result["content"],
                 title=result.get("title"),
                 source_uri=result.get("source_uri"),
-                author=result.get("meta", {}).get("author"),
+                author=meta.get("author"),
                 published_at=None,
-                meta=result.get("meta", {}),
-                score=result.get("score", 0.0),
+                meta=meta,
+                score=float(result.get("score", 0.0) or 0.0),
                 source_type="internal",
             )
         )
 
     return merged[:top_k]
+
+
+async def get_chunk_embeddings(chunk_ids: list[str]) -> list[list[float]]:
+    """Fetch stored embeddings for given chunk_ids in input order.
+
+    Any missing embeddings are returned as empty lists to preserve alignment.
+    """
+    if not chunk_ids:
+        return []
+
+    db = get_db_client()
+    client = db.get_client()
+
+    result = (
+        client.table("item_chunks")
+        .select("chunk_id,embedding")
+        .in_("chunk_id", chunk_ids)
+        .execute()
+    )
+
+    rows = result.data or []
+    emb_by_id: dict[str, list[float]] = {}
+    for row in rows:
+        cid = str(row.get("chunk_id"))
+        emb = row.get("embedding")
+        if isinstance(emb, list):
+            emb_by_id[cid] = emb
+
+    ordered: list[list[float]] = []
+    for cid in chunk_ids:
+        ordered.append(emb_by_id.get(str(cid), []))
+
+    return ordered
 
 
 async def cache_web_page(
