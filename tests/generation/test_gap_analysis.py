@@ -146,7 +146,7 @@ class TestAnalyzeGapsWithSufficientResults:
 
             # Verify call parameters
             call_args = mock_client.chat.completions.create.call_args
-            assert call_args.kwargs["model"] == "gpt-3.5-turbo"
+            assert call_args.kwargs["model"] == "gpt-4o"
             assert call_args.kwargs["temperature"] == 0.3
             assert call_args.kwargs["response_format"] == {"type": "json_object"}
 
