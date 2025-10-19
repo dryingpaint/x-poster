@@ -1,21 +1,32 @@
-"""Embedding generation using BGE-M3."""
+"""Embedding generation using OpenAI (default) or local SentenceTransformers fallback."""
 
+from typing import Optional
+
+from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 
 from src.core.config import get_config
 
-# Global embedder instance (lazy loaded)
-_embedder = None
+# Global embedder instances (lazy loaded)
+_embedder: Optional[SentenceTransformer] = None
+_openai_client: Optional[OpenAI] = None
+
+
+def get_openai_client() -> OpenAI:
+    """Get or create OpenAI client for embeddings."""
+    global _openai_client
+    if _openai_client is None:
+        config = get_config()
+        _openai_client = OpenAI(api_key=config.openai_api_key)
+    return _openai_client
 
 
 def get_embedder() -> SentenceTransformer:
-    """Get or create embedder instance."""
+    """Get or create local embedder instance (fallback)."""
     global _embedder
-
     if _embedder is None:
         config = get_config()
         _embedder = SentenceTransformer(config.embedding_model)
-
     return _embedder
 
 
@@ -29,9 +40,21 @@ def embed_text(text: str) -> list[float]:
     Returns:
         Embedding vector as list of floats
     """
-    embedder = get_embedder()
-    embedding = embedder.encode(text, normalize_embeddings=True)
-    return embedding.tolist()
+    config = get_config()
+    try:
+        client = get_openai_client()
+        resp = client.embeddings.create(
+            model=config.openai_embedding_model,
+            input=text,
+            dimensions=config.embedding_dim,
+        )
+        vector = resp.data[0].embedding
+        return vector
+    except Exception:
+        # Fallback to local model
+        embedder = get_embedder()
+        embedding = embedder.encode(text, normalize_embeddings=True)
+        return embedding.tolist()
 
 
 def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
@@ -45,21 +68,39 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
     Returns:
         List of embedding vectors
     """
-    embedder = get_embedder()
+    config = get_config()
 
-    # Process in smaller batches to avoid memory issues and timeouts
-    all_embeddings = []
+    # Try OpenAI first in batches
+    try:
+        client = get_openai_client()
+        all_embeddings: list[list[float]] = []
 
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i + batch_size]
-        print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)}")
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)}")
+            resp = client.embeddings.create(
+                model=config.openai_embedding_model,
+                input=batch_texts,
+                dimensions=config.embedding_dim,
+            )
+            all_embeddings.extend([item.embedding for item in resp.data])
 
-        # Truncate very long texts to avoid memory issues (BGE-M3 max is 8192 tokens)
-        batch_texts = [text[:1500] if len(text) > 1500 else text for text in batch_texts]
+        return all_embeddings
+    except Exception:
+        # Fallback to local model
+        embedder = get_embedder()
+        all_embeddings = []
 
-        batch_embeddings = embedder.encode(
-            batch_texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
-        )
-        all_embeddings.extend([emb.tolist() for emb in batch_embeddings])
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)}")
 
-    return all_embeddings
+            # Truncate very long texts to avoid memory issues
+            batch_texts = [text[:1500] if len(text) > 1500 else text for text in batch_texts]
+
+            batch_embeddings = embedder.encode(
+                batch_texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
+            )
+            all_embeddings.extend([emb.tolist() for emb in batch_embeddings])
+
+        return all_embeddings

@@ -24,8 +24,9 @@ class Config(BaseSettings):
     openai_api_key: str
 
     # Embeddings / Reranker
-    embedding_model: str = "BAAI/bge-m3"
-    embedding_dim: int = 1024
+    embedding_model: str = "BAAI/bge-m3"  # legacy local model id (unused when using OpenAI)
+    embedding_dim: int = 1024              # must match DB vector dimension
+    openai_embedding_model: str = "text-embedding-3-small"
     reranker_model: str = "BAAI/bge-reranker-large"
 
     # Web Search (choose primary; keep both keys for fallback)
