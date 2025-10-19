@@ -87,9 +87,9 @@ def create_chunks_with_overlap(
     chunks_text = chunk_text(text, chunk_size, chunk_overlap)
 
     chunks = []
-    for i, chunk_text in enumerate(chunks_text):
+    for i, chunk_content in enumerate(chunks_text):
         chunk_data = {
-            "content": chunk_text,
+            "content": chunk_content,
             "meta": {
                 "chunk_index": i,
                 "total_chunks": len(chunks_text),

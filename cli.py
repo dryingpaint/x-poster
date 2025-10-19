@@ -9,6 +9,10 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.core.models import GenerateRequest, ItemKind
+from src.db.operations import insert_chunks, insert_item
+from src.generation.embeddings import embed_batch
+from src.ingestion.chunker import create_chunks_with_overlap
+from src.ingestion.pdf_processor import process_pdf_file
 from src.orchestrator.pipeline import run_generation_pipeline
 
 console = Console()

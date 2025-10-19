@@ -1,12 +1,12 @@
 """Database client and operations."""
 
-from .client import get_db_client, SupabaseClient
+from .client import SupabaseClient, get_db_client
 from .operations import (
-    insert_item,
-    insert_chunks,
-    search_internal,
     cache_web_page,
     get_cached_web_page,
+    insert_chunks,
+    insert_item,
+    search_internal,
 )
 
 __all__ = [

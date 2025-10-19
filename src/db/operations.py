@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from src.core.config import get_config
-from src.core.models import Item, ItemChunk, ItemKind, SearchResult, WebCache
+from src.core.models import ItemKind, SearchResult, WebCache
 from src.db.client import get_db_client
 
 
@@ -63,7 +63,6 @@ async def search_internal(
     """
     db = get_db_client()
     client = db.get_client()
-    config = get_config()
 
     # Full-text search using tsvector
     fts_results = (

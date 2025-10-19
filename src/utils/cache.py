@@ -7,7 +7,6 @@ import redis.asyncio as redis
 
 from src.core.config import get_config
 
-
 # Global Redis client
 _redis_client = None
 

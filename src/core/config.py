@@ -3,7 +3,6 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -66,7 +65,7 @@ class Config(BaseSettings):
     max_passages_per_domain: int = 2
 
 
-@lru_cache()
+@lru_cache
 def get_config() -> Config:
     """Get cached configuration instance."""
     return Config()

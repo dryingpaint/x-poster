@@ -87,7 +87,7 @@ begin
     i.title,
     i.source_uri,
     i.meta,
-    ts_rank(c.tsv, plainto_tsquery('english', search_query)) as score
+    ts_rank(c.tsv, plainto_tsquery('english', search_query))::double precision as score
   from item_chunks c
   join items i on c.item_id = i.item_id
   where c.tsv @@ plainto_tsquery('english', search_query)

@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from supabase import create_client, Client
+from supabase import Client, create_client
 
 from src.core.config import get_config
 
@@ -18,7 +18,7 @@ class SupabaseClient:
         return self.client
 
 
-@lru_cache()
+@lru_cache
 def get_db_client() -> SupabaseClient:
     """Get cached database client instance."""
     config = get_config()

@@ -1,7 +1,6 @@
 """Web search and content extraction."""
 
 import asyncio
-from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -173,7 +172,7 @@ async def fetch_and_extract(search_results: list[SearchResult]) -> list[SearchRe
     if tasks:
         contents = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result, content in zip(results_to_fetch, contents):
+        for result, content in zip(results_to_fetch, contents, strict=True):
             if isinstance(content, str) and content:
                 result.content = content
 

@@ -34,7 +34,7 @@ def embed_text(text: str) -> list[float]:
     return embedding.tolist()
 
 
-def embed_batch(texts: list[str], batch_size: int = 32) -> list[list[float]]:
+def embed_batch(texts: list[str], batch_size: int = 16) -> list[list[float]]:
     """
     Generate embeddings for a batch of texts.
 
@@ -46,7 +46,17 @@ def embed_batch(texts: list[str], batch_size: int = 32) -> list[list[float]]:
         List of embedding vectors
     """
     embedder = get_embedder()
-    embeddings = embedder.encode(
-        texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
-    )
-    return [emb.tolist() for emb in embeddings]
+
+    # Process in smaller batches to avoid memory issues and timeouts
+    all_embeddings = []
+
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i + batch_size]
+        print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)}")
+
+        batch_embeddings = embedder.encode(
+            batch_texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
+        )
+        all_embeddings.extend([emb.tolist() for emb in batch_embeddings])
+
+    return all_embeddings

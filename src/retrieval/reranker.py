@@ -5,7 +5,6 @@ from FlagEmbedding import FlagReranker
 from src.core.config import get_config
 from src.core.models import SearchResult
 
-
 # Global reranker instance (lazy loaded)
 _reranker = None
 
@@ -51,7 +50,7 @@ def rerank_results(
         scores = [scores]
 
     # Update scores and sort
-    for result, score in zip(results, scores):
+    for result, score in zip(results, scores, strict=True):
         result.score = float(score)
 
     # Sort by score and take top_k

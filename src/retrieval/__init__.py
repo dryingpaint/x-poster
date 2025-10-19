@@ -1,8 +1,8 @@
 """Retrieval modules for internal and web search."""
 
-from .web_search import search_web, fetch_and_extract
-from .reranker import rerank_results
 from .merger import merge_and_dedupe_results
+from .reranker import rerank_results
+from .web_search import fetch_and_extract, search_web
 
 __all__ = [
     "search_web",
