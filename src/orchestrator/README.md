@@ -1,491 +1,306 @@
-# Orchestrator Module
+# Orchestrator: LangGraph Agent
 
 ## Overview
-The orchestrator is the main pipeline coordinator that deterministically sequences all operations from query to final tweet generation.
 
-## Responsibilities
-- **Pipeline Coordination**: Execute the full generation pipeline in correct order
-- **Error Handling**: Handle failures gracefully and provide useful error messages
-- **Progress Tracking**: Log pipeline progress for observability
-- **Result Assembly**: Combine outputs from all modules into final response
+The orchestrator implements a **LangGraph state machine** that coordinates the entire tweet generation pipeline. The agent executes a linear flow of 10 nodes, each responsible for a specific step in the process.
 
-## Key Files
-- `pipeline.py`: Main deterministic pipeline implementation
+## Architecture
 
-## Development Guidelines
+### State Machine Flow
 
-### ⚠️ MANDATORY: Test-First Development
-
-**YOU MUST WRITE INTEGRATION TESTS BEFORE IMPLEMENTATION**
-
-**TDD for Pipeline Changes:**
-```bash
-# 1. Write integration test FIRST (RED)
-cat > tests/orchestrator/test_fast_pipeline.py << 'EOF'
-from src.orchestrator.pipeline import run_fast_pipeline
-
-@pytest.mark.asyncio
-async def test_fast_pipeline_completes_under_5s():
-    """Test fast pipeline variant meets latency target."""
-    request = GenerateRequest(prompt="AI safety")
-
-    start = time.time()
-    response = await run_fast_pipeline(request)
-    duration = time.time() - start
-
-    assert duration < 5.0  # Fast mode target
-    assert len(response.variants) > 0
-EOF
-
-# 2. Run and watch fail (RED)
-uv run pytest tests/orchestrator/test_fast_pipeline.py -v
-
-# 3. Implement fast pipeline (GREEN)
-# Add run_fast_pipeline() to src/orchestrator/pipeline.py
+```
+START
+  ↓
+1. embed_query         → Embed user query with BGE-M3
+  ↓
+2. internal_search     → Hybrid search (vector + FTS) internal docs
+  ↓
+3. gap_analysis        → LLM identifies missing information
+  ↓
+4. web_search          → Parallel targeted web searches to fill gaps
+  ↓
+5. merge_dedupe        → Merge internal + web, dedupe, diversity
+  ↓
+6. rerank              → Cross-encoder reranking (BGE-reranker)
+  ↓
+7. evidence_pack       → LLM extracts facts from top results
+  ↓
+8. tweet_generation    → LLM generates tweet variants + thread
+  ↓
+9. fact_check          → LLM verifies all citations present
+  ↓
+10. prepare_response   → Assemble final response with sources
+  ↓
+END
 ```
 
-**Why Test-First for Orchestrator?**
-- **Integration safety**: Catches module interaction bugs
-- **Performance**: Tests enforce latency budgets
-- **Correctness**: End-to-end validation
+### Files
 
-### Working on Pipeline (`pipeline.py`)
-**What you can do in parallel:**
-- Add pipeline observability (metrics, tracing)
-- Add pipeline configuration (enable/disable stages)
-- Add retry logic for transient failures
-- Add pipeline variants (fast mode, high-quality mode)
+| File | Purpose | Lines |
+|------|---------|-------|
+| `agent.py` | Graph definition and execution | ~120 |
+| `state.py` | AgentState schema (TypedDict) | ~60 |
+| `tools.py` | Node functions (async tools) | ~190 |
 
-**What requires coordination:**
-- Changing pipeline stage order (may break correctness)
-- Modifying GenerateRequest/GenerateResponse (breaks API contract)
-- Adding/removing pipeline stages (impacts latency)
-- Changing error handling strategy (affects user experience)
+## Usage
 
-**Testing requirements:**
-```bash
-# Test full pipeline end-to-end
-uv run pytest tests/orchestrator/test_pipeline.py
+### Basic Execution
 
-# Test with various query types
-uv run pytest tests/orchestrator/test_pipeline.py::test_technical_query
-uv run pytest tests/orchestrator/test_pipeline.py::test_current_events_query
-
-# Test error handling
-uv run pytest tests/orchestrator/test_pipeline.py::test_no_results
-uv run pytest tests/orchestrator/test_pipeline.py::test_api_failure
-```
-
-**Code style:**
 ```python
-# GOOD: Clear pipeline stages with progress logging
-async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
-    """Execute full deterministic pipeline.
-
-    Pipeline Stages:
-    1. Embed query
-    2. Internal retrieval
-    3. Gap analysis
-    4. Web retrieval (gap-filling)
-    5. Merge and dedupe
-    6. Rerank
-    7. Evidence assembly
-    8. Tweet generation
-    9. Fact-checking
-    10. Response assembly
-
-    Args:
-        request: GenerateRequest with prompt and parameters
-
-    Returns:
-        GenerateResponse with tweets and sources
-    """
-    config = get_config()
-
-    # Stage 1: Embed query
-    print(f"📝 Query: {request.prompt}")
-    print("🔢 Embedding query...")
-    query_embedding = embed_text(request.prompt)
-
-    # Stage 2: Internal retrieval
-    print("📚 Retrieving from internal dataset...")
-    internal_results = await search_internal(
-        query=request.prompt,
-        query_embedding=query_embedding,
-        top_k=config.internal_top_k,
-    )
-    print(f"   Found {len(internal_results)} internal results")
-
-    # Continue with other stages...
-    # Each stage logs progress and handles errors
-
-    return response
-
-# GOOD: Add error recovery
-async def run_generation_pipeline_with_retry(
-    request: GenerateRequest,
-    max_retries: int = 2
-) -> GenerateResponse:
-    """Run pipeline with retry logic."""
-    for attempt in range(max_retries + 1):
-        try:
-            return await run_generation_pipeline(request)
-        except TransientError as e:
-            if attempt < max_retries:
-                logger.warning(f"Pipeline failed (attempt {attempt + 1}), retrying: {e}")
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
-            else:
-                raise
-
-# GOOD: Add pipeline variants
-async def run_fast_pipeline(request: GenerateRequest) -> GenerateResponse:
-    """Fast pipeline variant: skip web search for low-latency."""
-    # Only internal retrieval + generation
-    query_embedding = embed_text(request.prompt)
-    internal_results = await search_internal(
-        query=request.prompt,
-        query_embedding=query_embedding,
-        top_k=10
-    )
-
-    evidence = await create_evidence_pack(request.prompt, internal_results)
-    variants, thread = await generate_tweets(
-        request.prompt,
-        evidence,
-        max_variants=request.max_variants
-    )
-
-    return GenerateResponse(variants=variants, thread=thread, sources=[])
-
-# GOOD: Add pipeline observability
-from contextlib import asynccontextmanager
-import time
-
-@asynccontextmanager
-async def pipeline_stage(stage_name: str):
-    """Context manager for tracking pipeline stage timing."""
-    start_time = time.time()
-    print(f"▶ Starting stage: {stage_name}")
-
-    try:
-        yield
-    finally:
-        duration = time.time() - start_time
-        print(f"✓ Completed stage: {stage_name} ({duration:.2f}s)")
-
-async def run_instrumented_pipeline(request: GenerateRequest) -> GenerateResponse:
-    """Pipeline with detailed timing instrumentation."""
-    async with pipeline_stage("Query Embedding"):
-        query_embedding = embed_text(request.prompt)
-
-    async with pipeline_stage("Internal Retrieval"):
-        internal_results = await search_internal(...)
-
-    # ... rest of pipeline with timing
-
-    return response
-```
-
-## Interface Contract
-
-### Main Pipeline
-```python
-from src.orchestrator.pipeline import run_generation_pipeline
 from src.core.models import GenerateRequest
+from src.orchestrator.agent import run_agent
 
-# Run full pipeline
+# Create request
 request = GenerateRequest(
-    prompt="AI safety research in 2025",
+    prompt="What does Jason Hickel say about degrowth?",
     max_variants=3,
-    max_thread_tweets=6
+    max_thread_tweets=6,
 )
 
-response = await run_generation_pipeline(request)
-# Returns: GenerateResponse with variants, thread, and sources
+# Run agent
+response = await run_agent(request)
+
+# Access results
+for variant in response.variants:
+    print(variant.text)
+    print([c.source_id for c in variant.citations])
+
+for source in response.sources:
+    print(f"[{source.source_id}] {source.title} - {source.url}")
 ```
 
-### Request Format
+### Direct Graph Access
+
 ```python
-class GenerateRequest(BaseModel):
-    prompt: str  # User's query/topic
-    max_variants: int = 3  # Number of single tweet variants
-    max_thread_tweets: int = 6  # Max tweets in thread
+from src.orchestrator.agent import create_agent_graph
+from src.orchestrator.state import AgentState
+
+# Create compiled graph
+agent = create_agent_graph()
+
+# Initialize state
+initial_state: AgentState = {
+    "query": "degrowth",
+    "max_variants": 3,
+    "max_thread_tweets": 6,
+    "query_embedding": None,
+    "internal_results": None,
+    "gap_queries": None,
+    "web_results": None,
+    "merged_results": None,
+    "final_results": None,
+    "evidence": None,
+    "variants": None,
+    "thread": None,
+    "response": None,
+    "error": None,
+}
+
+# Execute graph
+final_state = await agent.ainvoke(initial_state)
+
+# Access final state
+response = final_state["response"]
 ```
 
-### Response Format
+## State Schema
+
+### AgentState (TypedDict)
+
+All data flows through a shared state object:
+
 ```python
-class GenerateResponse(BaseModel):
-    variants: list[Tweet]  # Single tweet variants
-    thread: list[Tweet]  # Thread of tweets
-    sources: list[Source]  # All cited sources
+class AgentState(TypedDict):
+    # Input parameters
+    query: str
+    max_variants: int
+    max_thread_tweets: int
+
+    # Step 1: Query embedding
+    query_embedding: Optional[list[float]]
+
+    # Step 2: Internal retrieval
+    internal_results: Optional[list[SearchResult]]
+
+    # Step 3: Gap analysis
+    gap_queries: Optional[list[str]]
+
+    # Step 4: Web search
+    web_results: Optional[list[SearchResult]]
+
+    # Step 6: Merge & dedupe
+    merged_results: Optional[list[SearchResult]]
+
+    # Step 7: Rerank
+    final_results: Optional[list[SearchResult]]
+
+    # Step 8: Evidence pack
+    evidence: Optional[EvidencePack]
+
+    # Step 9: Tweet generation
+    variants: Optional[list[Tweet]]
+    thread: Optional[list[Tweet]]
+
+    # Step 11: Final response
+    response: Optional[GenerateResponse]
+
+    # Error handling
+    error: Optional[str]
 ```
 
-## Pipeline Architecture
+## Node Functions (Tools)
 
-### Linear Deterministic Flow
-```
-Input: GenerateRequest
-  ↓
-[1] Embed Query
-  ↓
-[2] Internal Search → Results
-  ↓
-[3] Gap Analysis → Gap Queries
-  ↓
-[4] Web Search (gaps) → Web Results
-  ↓
-[5] Merge + Dedupe → Combined Results
-  ↓
-[6] Rerank → Top K Results
-  ↓
-[7] Evidence Pack → Facts + Sources
-  ↓
-[8] Tweet Generation → Draft Tweets
-  ↓
-[9] Fact-Check → Verified Tweets
-  ↓
-[10] Assemble Response
-  ↓
-Output: GenerateResponse
-```
+Each node is an async function that:
+1. Reads relevant fields from state
+2. Performs its operation
+3. Returns dict with updated fields
 
-### Key Design Principles
-1. **Deterministic**: Same input → same output (given same data)
-2. **Sequential**: Each stage completes before next starts
-3. **Fail-Fast**: Early exit if critical stage fails
-4. **Observable**: Progress logging at each stage
-5. **Composable**: Stages can be skipped or reordered for variants
+### Node Details
 
-## Dependencies
-**External:**
-- `asyncio`: Async/await pipeline execution
+| Node | Reads | Writes | External Calls |
+|------|-------|--------|----------------|
+| **embed_query** | query | query_embedding | BGE-M3 model |
+| **internal_search** | query, query_embedding | internal_results | Supabase RPC |
+| **gap_analysis** | query, internal_results | gap_queries | OpenAI LLM |
+| **web_search** | gap_queries | web_results | EXA/Serper API |
+| **merge_dedupe** | internal_results, web_results | merged_results | BGE-M3 embeddings |
+| **rerank** | query, merged_results | final_results | BGE-reranker model |
+| **evidence_pack** | query, final_results | evidence | OpenAI LLM |
+| **tweet_generation** | query, evidence, params | variants, thread | OpenAI LLM |
+| **fact_check** | variants, thread, evidence | variants, thread | OpenAI LLM |
+| **prepare_response** | variants, thread, evidence | response | None |
 
-**Internal:**
-- `src.core.config`: Pipeline configuration
-- `src.core.models`: All data models
-- `src.db.operations`: Internal search
-- `src.retrieval.*`: Web search, merging, reranking
-- `src.generation.*`: Embeddings, evidence, writing, fact-checking
+## Performance
 
-## Performance Considerations
-- **Total Latency**: Target <12s p50, <20s p95
-- **Stage Breakdown**:
-  - Embed: ~100ms
-  - Internal Search: ~500ms
-  - Gap Analysis: ~2s
-  - Web Search: ~2s
-  - Rerank: ~500ms
-  - Evidence: ~3s
-  - Generation: ~4s
-  - Fact-Check: ~2s
-- **Optimization**: Parallel operations within stages (e.g., multiple web searches)
+### Latency Breakdown
 
-### Latency Optimization
+| Step | Typical Latency | Parallelizable |
+|------|-----------------|----------------|
+| 1. Embed query | ~100ms | No |
+| 2. Internal search | ~300ms | No |
+| 3. Gap analysis | ~2s | No |
+| 4. Web search | ~3s | Yes (per gap query) |
+| 5. Merge/dedupe | ~500ms | No |
+| 6. Rerank | ~400ms | No |
+| 7. Evidence pack | ~2s | No |
+| 8. Tweet generation | ~4s | No |
+| 9. Fact check | ~1s | Yes (variants) |
+| 10. Prepare response | ~10ms | No |
+| **Total** | **~12s** | - |
+
+## Testing
+
+### Unit Tests (Per Node)
+
+Test individual nodes with mock state:
+
 ```python
-# GOOD: Parallel gap-filling web searches
-web_tasks = [
-    search_web(query=gap_query, top_k=config.web_top_k // len(gap_queries))
-    for gap_query in gap_queries
-]
-web_results_list = await asyncio.gather(*web_tasks)
+@pytest.mark.asyncio
+async def test_embed_query_node():
+    state: AgentState = {
+        "query": "test query",
+        # ... other fields
+    }
 
-# GOOD: Skip optional stages for fast mode
-if config.fast_mode:
-    # Skip web search entirely
-    final_results = internal_results
-else:
-    # Full pipeline with web search
-    gap_queries = await analyze_gaps(...)
-    web_results = await search_web(...)
+    result = await embed_query_node(state)
 
-# GOOD: Early exit on empty results
-if not internal_results:
-    print("⚠️  No internal results found")
-    if not config.web_fallback:
-        return GenerateResponse(variants=[], thread=[], sources=[])
+    assert "query_embedding" in result
+    assert len(result["query_embedding"]) == 1024  # BGE-M3 dimension
 ```
 
-## Error Handling Strategy
+### Integration Tests (Full Graph)
 
-### Error Categories
-1. **User Errors**: Invalid input → return error message
-2. **No Results**: Valid query but no data → return empty response
-3. **Transient Errors**: API timeout, rate limit → retry
-4. **Critical Errors**: Database down, model loading failed → raise exception
-
-### Error Handling Pattern
 ```python
-# GOOD: Graceful degradation
-try:
-    web_results = await search_web(query)
-except APIError as e:
-    logger.warning(f"Web search failed: {e}")
-    web_results = []  # Continue with internal results only
-
-# GOOD: Meaningful error messages
-if not final_results:
-    print("⚠️  No results found for query. Try:")
-    print("   - More specific keywords")
-    print("   - Different phrasing")
-    print("   - Checking document database is populated")
-    return GenerateResponse(variants=[], thread=[], sources=[])
-
-# GOOD: Critical errors bubble up
-try:
-    query_embedding = embed_text(request.prompt)
-except ModelLoadError:
-    # Can't proceed without embeddings
-    raise PipelineError("Embedding model failed to load")
-```
-
-## Common Pitfalls
-- **DON'T** skip error handling (errors will cascade)
-- **DON'T** run stages in wrong order (breaks correctness)
-- **DON'T** forget to log progress (hard to debug failures)
-- **DON'T** modify request during pipeline (breaks reproducibility)
-- **DO** validate request before starting pipeline
-- **DO** handle empty results at each stage
-- **DO** provide clear progress indicators
-
-## Testing Checklist
-- [ ] Full pipeline completes successfully with valid input
-- [ ] Pipeline handles empty internal results
-- [ ] Pipeline handles web search failures
-- [ ] Pipeline handles LLM API errors
-- [ ] Pipeline returns empty response when no evidence found
-- [ ] Pipeline latency < 15s for typical queries
-- [ ] All stages log progress correctly
-
-## Testing Patterns
-
-### End-to-End Tests
-```python
-# Test full pipeline
-async def test_full_pipeline():
+@pytest.mark.asyncio
+async def test_full_agent():
     request = GenerateRequest(
-        prompt="AI safety research",
-        max_variants=3
+        prompt="test query",
+        max_variants=1,
+        max_thread_tweets=3,
     )
 
-    response = await run_generation_pipeline(request)
+    response = await run_agent(request)
 
-    assert len(response.variants) > 0
-    assert len(response.sources) > 0
-    assert all(len(tweet.citations) > 0 for tweet in response.variants)
-
-# Test with no internal results
-async def test_pipeline_web_only():
-    # Mock empty internal results
-    with patch('src.db.operations.search_internal', return_value=[]):
-        request = GenerateRequest(prompt="breaking news today")
-        response = await run_generation_pipeline(request)
-
-        # Should still get results from web search
-        assert len(response.variants) > 0
-
-# Test error handling
-async def test_pipeline_api_failure():
-    # Mock API failure
-    with patch('src.retrieval.web_search.search_web', side_effect=APIError):
-        request = GenerateRequest(prompt="test query")
-        response = await run_generation_pipeline(request)
-
-        # Should gracefully handle and continue with internal only
-        assert isinstance(response, GenerateResponse)
+    assert response.variants
+    assert response.sources
 ```
 
-### Integration Tests
-```python
-# Test with real APIs (slow, use sparingly)
-@pytest.mark.integration
-async def test_pipeline_integration():
-    """Test with real database and APIs."""
-    request = GenerateRequest(
-        prompt="latest AI developments",
-        max_variants=2
-    )
+### Run Tests
 
-    response = await run_generation_pipeline(request)
+```bash
+# Unit tests
+uv run pytest tests/orchestrator/ -v
 
-    # Validate response quality
-    assert len(response.variants) == 2
-    assert all(len(tweet.text) <= 280 for tweet in response.variants)
-    assert all(validate_citations(tweet) for tweet in response.variants)
+# Integration tests
+uv run pytest tests/test_pipeline.py -v
+
+# Full suite
+uv run pytest tests/ -v
 ```
 
-## Configuration
+## Extending the Agent
 
-### Pipeline Configuration
+### Adding a New Node
+
+1. **Define node function** in `tools.py`:
+   ```python
+   async def my_new_node(state: AgentState) -> dict[str, Any]:
+       """My new processing step."""
+       input_data = state["some_field"]
+       output_data = process(input_data)
+       return {"new_field": output_data}
+   ```
+
+2. **Update state schema** in `state.py`:
+   ```python
+   class AgentState(TypedDict):
+       # ... existing fields
+       new_field: Optional[MyType]
+   ```
+
+3. **Add to graph** in `agent.py`:
+   ```python
+   graph.add_node("my_node", my_new_node)
+   graph.add_edge("previous_node", "my_node")
+   graph.add_edge("my_node", "next_node")
+   ```
+
+### Conditional Branching
+
+LangGraph supports conditional edges:
+
 ```python
-# In src/core/config.py
-class Config(BaseModel):
-    # Retrieval
-    internal_top_k: int = 15
-    web_top_k: int = 10
-    rerank_k: int = 20
-    final_top_k: int = 8
+def should_do_web_search(state: AgentState) -> str:
+    """Decide whether to do web search based on gap analysis."""
+    if state["gap_queries"]:
+        return "web_search"
+    else:
+        return "merge_dedupe"  # Skip web search
 
-    # Generation
-    max_gap_queries: int = 3
-    min_confidence: float = 0.7
-
-    # Performance
-    timeout_seconds: int = 30
-    enable_caching: bool = True
-```
-
-### Usage
-```python
-from src.core.config import get_config
-
-config = get_config()
-
-# Use config throughout pipeline
-internal_results = await search_internal(
-    query=request.prompt,
-    top_k=config.internal_top_k  # Configurable
+# In graph
+graph.add_conditional_edges(
+    "gap_analysis",
+    should_do_web_search,
+    {
+        "web_search": "web_search",
+        "merge_dedupe": "merge_dedupe",
+    }
 )
 ```
 
-## Monitoring and Observability
+## Best Practices
 
-### Metrics to Track
-- Pipeline latency (p50, p95, p99)
-- Success rate (% successful completions)
-- Error rate by stage
-- Result quality (citation count, source diversity)
-- API usage (OpenAI tokens, search queries)
+1. **Keep nodes pure**: Each node should only use data from state
+2. **Minimize external calls**: Cache models, reuse clients
+3. **Handle errors gracefully**: Set `state["error"]` instead of raising
+4. **Use type hints**: AgentState is typed, maintain type safety
+5. **Test nodes independently**: Unit test each node before integration
+6. **Profile performance**: Measure node latency
+7. **Document state changes**: Comment what each node reads/writes
 
-### Logging Best Practices
-```python
-# GOOD: Structured logging with context
-logger.info("pipeline_stage_complete", extra={
-    "stage": "internal_retrieval",
-    "duration_ms": duration_ms,
-    "result_count": len(internal_results),
-    "query": request.prompt
-})
+## Related Documentation
 
-# GOOD: Log decision points
-if not gap_queries:
-    logger.info("gap_analysis_skipped", extra={
-        "reason": "sufficient_internal_knowledge",
-        "internal_result_count": len(internal_results)
-    })
-
-# GOOD: Log performance issues
-if duration_ms > 3000:
-    logger.warning("slow_stage", extra={
-        "stage": "web_search",
-        "duration_ms": duration_ms,
-        "threshold_ms": 3000
-    })
-```
-
-## Contact for Coordination
-When modifying orchestrator:
-1. Document pipeline changes in CLAUDE.md
-2. Update latency budgets for new stages
-3. Test end-to-end with diverse queries
-4. Measure impact on success rate and quality
-5. Coordinate with all affected modules
+- **Main docs**: [CLAUDE.md](../../CLAUDE.md) - Project overview
+- **Parallel dev**: [PARALLEL_DEVELOPMENT.md](../../PARALLEL_DEVELOPMENT.md) - Team coordination
+- **Content filtering**: [src/retrieval/CONTENT_FILTER_README.md](../retrieval/CONTENT_FILTER_README.md) - LLM filtering
+- **Module READMEs**: Each `src/<module>/README.md` has detailed docs

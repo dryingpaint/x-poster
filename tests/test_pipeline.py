@@ -1,21 +1,21 @@
-"""Test main pipeline."""
+"""Test LangGraph agent pipeline."""
 
 import pytest
 
 from src.core.models import GenerateRequest
-from src.orchestrator.pipeline import run_generation_pipeline
+from src.orchestrator.agent import run_agent
 
 
 @pytest.mark.asyncio
-async def test_pipeline_basic():
-    """Test basic pipeline execution."""
+async def test_agent_basic():
+    """Test basic agent execution."""
     request = GenerateRequest(
         prompt="Test prompt", max_variants=1, max_thread_tweets=3
     )
 
     # This will fail without proper setup, but tests structure
     # In real tests, you'd mock the external dependencies
-    # response = await run_generation_pipeline(request)
+    # response = await run_agent(request)
     # assert response is not None
     pass
 

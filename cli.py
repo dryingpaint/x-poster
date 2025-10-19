@@ -14,7 +14,7 @@ from src.db.operations import insert_chunks, insert_item
 from src.generation.embeddings import embed_batch
 from src.ingestion.chunker import create_chunks_with_overlap
 from src.ingestion.pdf_processor import process_pdf_file
-from src.orchestrator.pipeline import run_generation_pipeline
+from src.orchestrator.agent import run_agent
 
 console = Console()
 
@@ -42,7 +42,7 @@ def generate(prompt: str, max_variants: int, max_thread_tweets: int, output: str
 
         console.print(f"\n[bold blue]🚀 Generating tweets for:[/bold blue] {prompt}\n")
 
-        response = await run_generation_pipeline(request)
+        response = await run_agent(request)
 
         # Display results
         if response.variants:

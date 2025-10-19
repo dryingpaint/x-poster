@@ -24,11 +24,9 @@ class Config(BaseSettings):
     openai_api_key: str
 
     # Embeddings / Reranker
-    embedding_model: str = "BAAI/bge-m3"  # legacy local model id (unused when using OpenAI)
-    embedding_dim: int = 1024              # must match DB vector dimension
-    openai_embedding_model: str = "text-embedding-3-small"
-    openai_embedding_max_tokens: int = 2000
-    reranker_model: str = "BAAI/bge-reranker-large"
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_dim: int = 1024
+    reranker_model: str = "BAAI/bge-reranker-base"  # base = 2-3x faster, large = more accurate
 
     # Web Search (choose primary; keep both keys for fallback)
     exa_api_key: str | None = None
@@ -66,9 +64,16 @@ class Config(BaseSettings):
     # Domain diversity
     max_passages_per_domain: int = 2
 
+    # Content filtering
+    enable_content_filtering: bool = True
+    filter_model: str = "gpt-4o-mini"
+    filter_temperature: float = 0.2
+    max_filter_concurrent: int = 5
+    media_output_dir: str = "data/media"
+    media_download_timeout: int = 10
+
 
 @lru_cache
 def get_config() -> Config:
     """Get cached configuration instance."""
     return Config()
-

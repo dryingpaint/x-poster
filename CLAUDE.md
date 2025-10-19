@@ -13,6 +13,7 @@ This project uses **uv** for all dependency management and Python environment ha
 ## Common Commands
 
 ### Development Setup
+
 ```bash
 # Install dependencies with uv
 uv sync
@@ -24,6 +25,7 @@ uv sync --extra dev
 ### Database Setup (Supabase CLI)
 
 **Recommended: Local Development + Migration Workflow**
+
 ```bash
 # 1. Start local Supabase (first time setup)
 uv run python cli.py db start
@@ -36,6 +38,7 @@ uv run python cli.py db push
 ```
 
 **Alternative: Direct Remote Setup**
+
 ```bash
 # Apply the initial migration directly to your Supabase project
 # Go to Supabase Dashboard → SQL Editor and run the contents of:
@@ -43,12 +46,14 @@ uv run python cli.py db push
 ```
 
 ### Document Ingestion
+
 ```bash
 # Ingest PDF documents
 uv run python cli.py ingest --source files/ --kind pdf
 ```
 
 ### Generate Tweets
+
 ```bash
 # Generate tweets via CLI
 uv run python cli.py generate "State of small LMs in 2025" --max-variants 3
@@ -58,7 +63,8 @@ uv run agent-tweeter generate "State of small LMs in 2025" --max-variants 3
 ```
 
 ### Testing & Quality
-```bash
+
+````bash
 # Run tests
 uv run pytest tests/
 
@@ -91,26 +97,55 @@ uv run python cli.py db push
 
 # Link to a Supabase project
 uv run python cli.py db link YOUR_PROJECT_REF
-```
+````
+
 ```
 
 ## Architecture
 
-The system is organized into distinct modules:
+The system uses a **LangGraph state machine** to orchestrate the tweet generation pipeline. Each step is a node in the graph that processes and updates shared state.
 
-- **`src/core/`**: Configuration management (`config.py`) and data models (`models.py`)
+### Module Structure
+
+- **`src/core/`**: Configuration (`config.py`) and data models (`models.py`)
 - **`src/db/`**: Database client, operations, and migrations
 - **`src/ingestion/`**: Document processing (PDF, OCR, chunking)
-- **`src/retrieval/`**: Hybrid search (internal + web), reranking, merging
+- **`src/retrieval/`**: Hybrid search (internal + web), reranking, merging, content filtering
 - **`src/generation/`**: Embeddings, evidence assembly, tweet generation
+- **`src/orchestrator/`**: LangGraph agent (state graph, nodes/tools)
+
+### LangGraph Pipeline (10 Nodes)
+
+The agent executes a linear state graph:
+
+```
+
+1. embed_query → Embed query with BGE-M3
+2. internal_search → Search internal docs (hybrid: vector + FTS)
+3. gap_analysis → Identify missing information
+4. web_search → Parallel searches to fill gaps
+5. merge_dedupe → Merge + dedupe with diversity constraints
+6. rerank → Cross-encoder reranking (BGE-reranker)
+7. evidence_pack → Extract facts from top results (LLM)
+8. tweet_generation → Generate tweet variants (LLM)
+9. fact_check → Verify citations present (LLM)
+10. prepare_response → Assemble final response with sources
+
+```
+
+**Key Files:**
+- `src/orchestrator/agent.py`: Graph definition and execution
+- `src/orchestrator/state.py`: AgentState schema (TypedDict)
+- `src/orchestrator/tools.py`: Node functions (async tools)
 
 ### Key Components
 
-1. **Orchestrator**: Deterministic async pipeline coordinating three main tools
-2. **Retrieval**: Uses BGE-M3 embeddings with pgvector for internal docs, EXA/Serper for web search
-3. **Reranking**: BGE-reranker-large cross-encoder for result refinement
-4. **Generation**: OpenAI models for evidence assembly and tweet generation
-5. **Storage**: Supabase Postgres with pgvector for multimodal document storage
+1. **LangGraph Agent**: State machine with 10 nodes, linear flow
+2. **Hybrid Retrieval**: BGE-M3 embeddings + pgvector for internal docs, EXA/Serper for web
+3. **Content Filtering**: LLM-based extraction of relevant info + media download
+4. **Reranking**: BGE-reranker-base cross-encoder for result refinement
+5. **Generation**: OpenAI models for evidence assembly and tweet generation
+6. **Storage**: Supabase Postgres with pgvector for multimodal documents
 
 ## Configuration
 
@@ -130,7 +165,7 @@ Core data models in `src/core/models.py`:
 
 - **`Item`**: Multimodal documents (PDFs, images, audio, etc.)
 - **`ItemChunk`**: Chunked text for retrieval with embeddings
-- **`SearchResult`**: Unified format for internal and web results  
+- **`SearchResult`**: Unified format for internal and web results
 - **`EvidenceFact`**: Extracted facts with confidence scores
 - **`Tweet`**: Generated tweets with citations
 - **`GenerateResponse`**: API response format with variants, threads, and sources
@@ -203,13 +238,16 @@ This project follows the official **Supabase CLI migration workflow** using plai
 ## Tech Stack
 
 - **Python**: 3.11+ with uv for dependency management
+- **Orchestration**: LangGraph for state machine workflow
 - **Database**: PostgreSQL with pgvector extension via Supabase
 - **Migrations**: Supabase CLI with plain SQL files
 - **Embeddings**: BGE-M3 (multilingual, 1024-dim)
-- **Reranker**: BAAI/bge-reranker-large
-- **LLM**: OpenAI GPT-4/3.5-turbo
+- **Reranker**: BAAI/bge-reranker-base
+- **LLM**: OpenAI GPT-4/GPT-4o-mini
 - **Vector DB**: Supabase + pgvector
 - **Web Search**: EXA (primary), Serper (fallback)
+- **Content Filtering**: LLM-based extraction with media download
 - **PDF Processing**: PyMuPDF + OCRmyPDF + Tesseract
 - **Text Processing**: scikit-learn for cosine similarity
 - **Caching**: Redis (optional)
+```

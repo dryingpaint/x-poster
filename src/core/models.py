@@ -132,6 +132,34 @@ class GenerateRequest(BaseModel):
     max_thread_tweets: int = 6
 
 
+class MediaFile(BaseModel):
+    """Reference to a media file (image, video, etc.) from web content."""
+
+    media_id: str
+    media_type: str  # 'image', 'video', 'audio', etc.
+    description: str
+    context: str  # Why this media is relevant
+    source_url: str | None = None
+    local_path: str | None = None  # Path to downloaded file
+
+
+class FilteredWebResult(BaseModel):
+    """LLM-filtered web search result with extracted relevant content."""
+
+    source_id: str
+    original_url: str | None = None
+    title: str | None = None
+    author: str | None = None
+    published_at: datetime | None = None
+    relevant_text: str  # LLM-extracted relevant content
+    key_points: list[str] = Field(default_factory=list)
+    media_files: list[MediaFile] = Field(default_factory=list)
+    credibility_score: float = Field(ge=0.0, le=1.0)
+    relevance_score: float = Field(ge=0.0, le=1.0)
+    meta: dict[str, Any] = Field(default_factory=dict)
+    extracted_at: datetime
+
+
 class GenerateResponse(BaseModel):
     """Response with generated tweets."""
 
