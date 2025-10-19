@@ -250,7 +250,7 @@ The CLI shows progress with emojis. Watch for:
 - Reduce `INTERNAL_TOP_K` and `WEB_TOP_K`
 - Reduce `FINAL_TOP_K`
 - Enable Redis caching
-- Use faster OpenAI model (gpt-3.5-turbo)
+- Use faster OpenAI model (gpt-4o)
 
 ## Next Steps
 
