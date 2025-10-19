@@ -2,12 +2,14 @@
 
 import asyncio
 from typing import Any
+from datetime import datetime
 from urllib.parse import urlparse
 
 import httpx
 from exa_py import Exa
 from serpapi import GoogleSearch
 from trafilatura import extract
+import dateparser
 
 from src.core.config import get_config
 from src.core.models import SearchResult
@@ -134,6 +136,18 @@ async def search_web(query: str, top_k: int = 50) -> list[SearchResult]:
         score = result.get("score")
         if score is None or not isinstance(score, (int, float)):
             score = 0.0
+        # Normalize published_at to datetime | None
+        raw_published = result.get("published_at")
+        published_at: datetime | None = None
+        if raw_published:
+            try:
+                if isinstance(raw_published, datetime):
+                    published_at = raw_published
+                else:
+                    parsed = dateparser.parse(str(raw_published))
+                    published_at = parsed if isinstance(parsed, datetime) else None
+            except Exception:
+                published_at = None
         
         search_results.append(
             SearchResult(
@@ -142,7 +156,7 @@ async def search_web(query: str, top_k: int = 50) -> list[SearchResult]:
                 title=result.get("title"),
                 url=result["url"],
                 author=result.get("author"),
-                published_at=result.get("published_at"),
+                published_at=published_at,
                 meta={"domain": domain},
                 score=float(score),
                 source_type="web",

@@ -27,6 +27,7 @@ class Config(BaseSettings):
     embedding_model: str = "BAAI/bge-m3"  # legacy local model id (unused when using OpenAI)
     embedding_dim: int = 1024              # must match DB vector dimension
     openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_max_tokens: int = 2000
     reranker_model: str = "BAAI/bge-reranker-large"
 
     # Web Search (choose primary; keep both keys for fallback)
