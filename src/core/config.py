@@ -28,6 +28,7 @@ class Config(BaseSettings):
     embedding_dim: int = 1024
     reranker_model: str = "BAAI/bge-reranker-base"  # base = 2-3x faster, large = more accurate
     openai_embedding_max_tokens: int = 2000
+    openai_embedding_model: str = "text-embedding-3-small"
 
     # Web Search (choose primary; keep both keys for fallback)
     exa_api_key: str | None = None
