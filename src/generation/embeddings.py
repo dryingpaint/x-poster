@@ -10,6 +10,7 @@ from src.core.config import get_config
 # Global embedder instances (lazy loaded)
 _embedder: Optional[SentenceTransformer] = None
 _openai_client: Optional[OpenAI] = None
+_provider_logged: bool = False
 
 
 def get_openai_client() -> OpenAI:
@@ -41,6 +42,7 @@ def embed_text(text: str) -> list[float]:
         Embedding vector as list of floats
     """
     config = get_config()
+    global _provider_logged
     try:
         client = get_openai_client()
         resp = client.embeddings.create(
@@ -49,11 +51,17 @@ def embed_text(text: str) -> list[float]:
             dimensions=config.embedding_dim,
         )
         vector = resp.data[0].embedding
+        if not _provider_logged:
+            print(f"Embeddings provider: OpenAI {config.openai_embedding_model} (dim={config.embedding_dim})")
+            _provider_logged = True
         return vector
     except Exception:
         # Fallback to local model
         embedder = get_embedder()
         embedding = embedder.encode(text, normalize_embeddings=True)
+        if not _provider_logged:
+            print(f"Embeddings provider: Local SentenceTransformer {get_config().embedding_model}")
+            _provider_logged = True
         return embedding.tolist()
 
 
@@ -71,6 +79,7 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
     config = get_config()
 
     # Try OpenAI first in batches
+    global _provider_logged
     try:
         client = get_openai_client()
         all_embeddings: list[list[float]] = []
@@ -85,6 +94,9 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
             )
             all_embeddings.extend([item.embedding for item in resp.data])
 
+        if not _provider_logged:
+            print(f"Embeddings provider: OpenAI {config.openai_embedding_model} (dim={config.embedding_dim})")
+            _provider_logged = True
         return all_embeddings
     except Exception:
         # Fallback to local model
@@ -103,4 +115,7 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
             )
             all_embeddings.extend([emb.tolist() for emb in batch_embeddings])
 
+        if not _provider_logged:
+            print(f"Embeddings provider: Local SentenceTransformer {get_config().embedding_model}")
+            _provider_logged = True
         return all_embeddings
