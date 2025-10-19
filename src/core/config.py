@@ -43,10 +43,10 @@ class Config(BaseSettings):
     max_concurrent_fetches: int = 10
 
     # Retrieval parameters
-    internal_top_k: int = 50
-    web_top_k: int = 50
-    final_top_k: int = 8
-    rerank_k: int = 12
+    internal_top_k: int = 10
+    web_top_k: int = 10
+    final_top_k: int = 6
+    rerank_k: int = 8
 
     # Generation parameters
     max_thread_tweets: int = 6

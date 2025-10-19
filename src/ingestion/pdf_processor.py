@@ -72,7 +72,7 @@ def is_scanned_pdf(pdf_path: str | Path, sample_pages: int = 3) -> bool:
 
     # If very little text extracted, likely scanned
     avg_chars_per_page = text_chars / pages_checked
-    return avg_chars_per_page < 100
+    return bool(avg_chars_per_page < 100)
 
 
 async def process_pdf_file(

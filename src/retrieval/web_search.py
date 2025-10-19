@@ -130,6 +130,11 @@ async def search_web(query: str, top_k: int = 50) -> list[SearchResult]:
         # For EXA, content might already be included
         content = result.get("content") or result.get("snippet", "")
 
+        # Ensure score is a valid float
+        score = result.get("score")
+        if score is None or not isinstance(score, (int, float)):
+            score = 0.0
+        
         search_results.append(
             SearchResult(
                 source_id=f"web_{i}_{hash(result['url'])}",
@@ -139,7 +144,7 @@ async def search_web(query: str, top_k: int = 50) -> list[SearchResult]:
                 author=result.get("author"),
                 published_at=result.get("published_at"),
                 meta={"domain": domain},
-                score=result.get("score", 0.0),
+                score=float(score),
                 source_type="web",
             )
         )

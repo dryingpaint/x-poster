@@ -3,7 +3,6 @@
 Following TDD: These tests define the expected behavior BEFORE implementation.
 """
 
-import pytest
 
 from src.ingestion.chunker import chunk_text, create_chunks_with_overlap
 
@@ -47,9 +46,21 @@ class TestChunkText:
                 assert len(overlap_words) > 0
 
     def test_chunk_text_target_size(self):
-        """Test that chunks approximately match target token size."""
-        # Create text with actual sentences (more realistic)
-        text = " ".join([f"This is sentence number {i} with some content." for i in range(100)])
+        """Test that paragraph-based chunking works with fallback for long paragraphs."""
+        # The new chunker uses paragraph-based chunking with 2000 token threshold
+        # Create text with paragraphs (separated by blank lines)
+        paragraphs = []
+        for i in range(10):
+            # Create paragraphs with varied content
+            para = f"Paragraph {i}. " + " ".join([
+                f"This is sentence {j} with various content about technology and science."
+                for j in range(10)
+            ])
+            paragraphs.append(para)
+
+        # Join with double newlines (paragraph separators)
+        text = "\n\n".join(paragraphs)
+
         chunk_size = 100
         chunks = chunk_text(text, chunk_size=chunk_size, chunk_overlap=10)
 
@@ -58,13 +69,16 @@ class TestChunkText:
 
         encoding = tiktoken.get_encoding("cl100k_base")
 
+        # Should have created multiple chunks (one per paragraph)
+        assert len(chunks) >= 5, f"Should create multiple chunks, got {len(chunks)}"
+
+        # Each chunk should be reasonable (paragraph-based, so may exceed chunk_size)
         for chunk in chunks:
             tokens = len(encoding.encode(chunk))
-            # Allow some flexibility (chunks can be smaller or slightly larger)
-            assert tokens <= chunk_size * 1.5  # Max 50% larger
-            # But not too small (except possibly last chunk)
-            if chunk != chunks[-1]:
-                assert tokens >= chunk_size * 0.3  # At least 30% of target
+            # Paragraphs can be larger than chunk_size (up to 2000 tokens threshold)
+            assert tokens > 0
+            # But shouldn't be extremely large unless it's a very long paragraph
+            assert tokens < 2500
 
     def test_chunk_text_empty_string(self):
         """Test handling of empty input."""
@@ -82,18 +96,25 @@ class TestChunkText:
         assert len(chunks) == 1
         assert chunks[0] == text
 
-    def test_chunk_text_very_long_sentence(self):
-        """Test handling of sentences longer than chunk_size."""
-        # Create a very long sentence
-        long_sentence = "This sentence has " + " ".join(["word" for _ in range(500)]) + "."
-        chunks = chunk_text(long_sentence, chunk_size=50, chunk_overlap=10)
+    def test_chunk_text_very_long_paragraph(self):
+        """Test handling of very long paragraphs (triggers token fallback)."""
+        # Create a very long paragraph (>2000 tokens to trigger fallback)
+        long_paragraph = " ".join([f"Sentence number {i} with content." for i in range(300)])
+        chunks = chunk_text(long_paragraph, chunk_size=500, chunk_overlap=50)
 
-        # Should still create chunks, even if sentence is too long
-        assert len(chunks) > 0
-        # All content should be preserved
-        combined = " ".join(chunks)
-        # Check that no words were lost (accounting for overlap)
-        assert all(word in combined for word in long_sentence.split()[:10])
+        # Should create multiple chunks via fallback windowing
+        assert len(chunks) > 1, "Should split very long paragraphs"
+
+        # Import tiktoken to verify
+        import tiktoken
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+        # Each chunk should be around the target size (with some flexibility)
+        for chunk in chunks:
+            tokens = len(encoding.encode(chunk))
+            assert tokens > 0
+            # Should not exceed chunk_size by too much (allowing overlap)
+            assert tokens <= 600  # chunk_size + some margin
 
     def test_chunk_text_custom_encoding(self):
         """Test using different tiktoken encoding."""

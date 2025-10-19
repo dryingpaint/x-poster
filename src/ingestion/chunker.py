@@ -5,6 +5,7 @@ from typing import Any
 
 import tiktoken
 
+
 def _normalize_text_preserving_paragraphs(text: str) -> str:
     """
     Normalize text to preserve paragraph boundaries while removing hard wraps.
