@@ -16,6 +16,60 @@ Handles document ingestion pipeline: PDF processing, OCR, text extraction, and c
 
 ## Development Guidelines
 
+### ⚠️ MANDATORY: Test-First Development
+
+**YOU MUST WRITE TESTS BEFORE IMPLEMENTATION**
+
+This module uses strict test-first development (TDD). Follow this workflow:
+
+1. **🔴 RED**: Write the test first (it will fail)
+2. **🟢 GREEN**: Write minimum code to pass the test
+3. **🔵 REFACTOR**: Improve code while keeping tests green
+
+**Example TDD Cycle for Adding DOCX Support:**
+```bash
+# Step 1: Write the test FIRST (RED)
+cat > tests/ingestion/test_docx_processor.py << 'EOF'
+import pytest
+from src.ingestion.pdf_processor import process_docx
+from src.core.models import Item, ItemKind
+
+async def test_process_docx_extracts_text():
+    """Test DOCX text extraction."""
+    item = await process_docx("tests/fixtures/sample.docx")
+
+    assert isinstance(item, Item)
+    assert item.kind == ItemKind.DOC
+    assert len(item.content_text) > 100
+    assert item.title is not None
+
+async def test_process_docx_handles_corruption():
+    """Test error handling for corrupted DOCX."""
+    with pytest.raises(DocumentProcessingError):
+        await process_docx("tests/fixtures/corrupted.docx")
+EOF
+
+# Step 2: Run test and watch it fail (RED)
+uv run pytest tests/ingestion/test_docx_processor.py -v
+# Expected: ImportError or AttributeError (function doesn't exist yet)
+
+# Step 3: Implement minimum code to pass (GREEN)
+# Add process_docx() to src/ingestion/pdf_processor.py
+
+# Step 4: Run test until it passes
+uv run pytest tests/ingestion/test_docx_processor.py -v
+
+# Step 5: Refactor while keeping tests green (REFACTOR)
+# Improve code quality, add error handling, etc.
+uv run pytest tests/ingestion/ -v
+```
+
+**Why Test-First for This Module?**
+- **Quality**: Document processing is complex with many edge cases
+- **Regression Prevention**: Easy to break existing formats when adding new ones
+- **Parallel Safety**: Tests define contracts before implementation
+- **Confidence**: Know exactly when feature is complete
+
 ### Working on PDF Processing (`pdf_processor.py`)
 **What you can do in parallel:**
 - Add support for new document formats (DOCX, PPTX, etc.)

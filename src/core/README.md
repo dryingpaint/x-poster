@@ -14,6 +14,40 @@ Foundation module containing shared configuration, data models, and core types u
 
 ## Development Guidelines
 
+### ⚠️ MANDATORY: Test-First Development
+
+**YOU MUST WRITE TESTS BEFORE IMPLEMENTATION**
+
+**TDD for Configuration:**
+```bash
+# 1. Write validation test FIRST (RED)
+cat > tests/core/test_monitoring_config.py << 'EOF'
+from src.core.config import Config
+
+def test_monitoring_config_validates():
+    config = Config(
+        monitoring_enabled=True,
+        metrics_port=8080,
+        trace_sample_rate=0.1
+    )
+    assert config.metrics_port > 0
+    assert 0 <= config.trace_sample_rate <= 1
+EOF
+
+# 2. Run and watch fail (RED)
+uv run pytest tests/core/test_monitoring_config.py -v
+
+# 3. Add config fields (GREEN)
+# Add to src/core/config.py
+
+# 4. Run until pass
+```
+
+**Why Test-First for Core?**
+- **Foundation safety**: Core affects all modules
+- **Validation**: Catch invalid configs early
+- **Documentation**: Tests show valid usage
+
 ### Working on Configuration (`config.py`)
 **What you can do in parallel:**
 - Add new configuration sections (e.g., `CacheConfig`, `MonitoringConfig`)

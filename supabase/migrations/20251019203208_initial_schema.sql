@@ -1,5 +1,5 @@
 -- Initial schema for Agent Tweeter
--- Run this in Supabase SQL editor or via psql
+-- Complete database setup with type fixes included
 
 -- Enable required extensions
 create extension if not exists vector;
@@ -64,7 +64,7 @@ create table if not exists web_cache (
 create index if not exists idx_web_cache_domain on web_cache(domain);
 create index if not exists idx_web_cache_fetched_at on web_cache(fetched_at desc);
 
--- RPC function for full-text search
+-- RPC function for full-text search (with correct type casting)
 create or replace function search_chunks_fts(
   search_query text,
   match_count int default 50
@@ -76,7 +76,7 @@ returns table (
   title text,
   source_uri text,
   meta jsonb,
-  score float
+  score double precision
 ) as $$
 begin
   return query
@@ -108,7 +108,7 @@ returns table (
   title text,
   source_uri text,
   meta jsonb,
-  score float
+  score double precision
 ) as $$
 begin
   return query
@@ -119,7 +119,7 @@ begin
     i.title,
     i.source_uri,
     i.meta,
-    1 - (c.embedding <=> query_embedding) as score
+    (1 - (c.embedding <=> query_embedding))::double precision as score
   from item_chunks c
   join items i on c.item_id = i.item_id
   where c.embedding is not null
@@ -140,4 +140,3 @@ drop trigger if exists trigger_update_items_updated_at on items;
 create trigger trigger_update_items_updated_at
   before update on items
   for each row execute function update_updated_at();
-

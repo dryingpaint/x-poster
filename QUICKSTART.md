@@ -46,17 +46,21 @@ REDIS_URL=redis://localhost:6379/0
 
 ## 3. Initialize Database
 
-### Option A: Supabase Dashboard
-
-1. Go to your Supabase project → SQL Editor
-2. Copy contents of `src/db/migrations/001_initial_schema.sql`
-3. Run the SQL
-
-### Option B: psql
+### Option A: Supabase CLI (Recommended)
 
 ```bash
-psql $DATABASE_URL -f src/db/migrations/001_initial_schema.sql
+# Link to your project
+uv run python cli.py db link YOUR_PROJECT_REF
+
+# Push the initial migration
+uv run python cli.py db push
 ```
+
+### Option B: Manual SQL
+
+1. Go to your Supabase project → SQL Editor
+2. Copy contents of `supabase/migrations/20251019203208_initial_schema.sql`
+3. Run the SQL
 
 ## 4. Test Connections
 

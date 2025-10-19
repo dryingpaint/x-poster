@@ -21,21 +21,25 @@ uv sync
 uv sync --extra dev
 ```
 
-### Important Setup Notes
+### Database Setup (Supabase CLI)
 
-After running the initial database migration (`001_initial_schema.sql`), you must also run the type fix migration:
-
+**Recommended: Local Development + Migration Workflow**
 ```bash
-# Run this in Supabase SQL editor after the initial migration
-psql $DATABASE_URL -f src/db/migrations/002_fix_fts_function.sql
+# 1. Start local Supabase (first time setup)
+uv run python cli.py db start
+
+# 2. Link to your remote project
+uv run python cli.py db link YOUR_PROJECT_REF
+
+# 3. Apply migrations to remote
+uv run python cli.py db push
 ```
 
-This fixes a PostgreSQL type mismatch where `ts_rank` returns `real` but the function expects `double precision`.
-
-### Database Setup
+**Alternative: Direct Remote Setup**
 ```bash
-# Initialize database (run in Supabase SQL editor or via psql)
-psql $DATABASE_URL -f src/db/migrations/001_initial_schema.sql
+# Apply the initial migration directly to your Supabase project
+# Go to Supabase Dashboard → SQL Editor and run the contents of:
+# supabase/migrations/20251019203208_initial_schema.sql
 ```
 
 ### Document Ingestion
@@ -66,6 +70,28 @@ uv run ruff check src/
 
 # Format code
 uv run black src/
+
+### Database Management (Supabase CLI)
+```bash
+# Start/stop local development database
+uv run python cli.py db start
+uv run python cli.py db stop
+
+# Create a new empty migration
+uv run python cli.py db create-migration "description_of_changes"
+
+# Generate migration from local changes (recommended)
+uv run python cli.py db diff "description_of_changes"
+
+# Test migrations locally (reset and replay all)
+uv run python cli.py db reset
+
+# Deploy migrations to remote
+uv run python cli.py db push
+
+# Link to a Supabase project
+uv run python cli.py db link YOUR_PROJECT_REF
+```
 ```
 
 ## Architecture
@@ -145,15 +171,40 @@ Core data models in `src/core/models.py`:
 
 ### Database Functions
 - **Fixed**: PostgreSQL type mismatch in `search_chunks_fts` function - `ts_rank` returns `real` but function expected `double precision`
-- **Solution**: Added type casting to `double precision` and created migration file `002_fix_fts_function.sql`
+- **Solution**: Added proper type casting to `double precision` in the initial migration
 
 ### Code Quality
 - **Fixed**: All linting issues including unused imports, deprecated configuration, missing `strict=` parameters
 - **Updated**: Moved ruff configuration to new `[tool.ruff.lint]` section format
 
+## Database Migrations (Supabase CLI)
+
+This project follows the official **Supabase CLI migration workflow** using plain SQL files:
+
+### Migration Workflow
+1. **Local development**: `uv run python cli.py db start` (spins up local Postgres)
+2. **Make schema changes**: Apply changes to local DB (SQL editor, psql, etc.)
+3. **Generate migration**: `uv run python cli.py db diff "description"` (auto-generates SQL)
+4. **Test locally**: `uv run python cli.py db reset` (clean replay of all migrations)
+5. **Deploy**: `uv run python cli.py db push` (applies to remote Supabase project)
+
+### Key Benefits
+- **Single source of truth**: Plain SQL files in `supabase/migrations/`
+- **Version control**: All migrations committed to git
+- **Local testing**: Full local Postgres environment
+- **Team collaboration**: Consistent schema across environments
+- **Official workflow**: Follows Supabase best practices
+
+### Migration Files
+- **Location**: `supabase/migrations/`
+- **Naming**: Timestamped (e.g., `20251019203208_initial_schema.sql`)
+- **Execution**: Applied sequentially in chronological order
+
 ## Tech Stack
 
 - **Python**: 3.11+ with uv for dependency management
+- **Database**: PostgreSQL with pgvector extension via Supabase
+- **Migrations**: Supabase CLI with plain SQL files
 - **Embeddings**: BGE-M3 (multilingual, 1024-dim)
 - **Reranker**: BAAI/bge-reranker-large
 - **LLM**: OpenAI GPT-4/3.5-turbo

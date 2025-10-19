@@ -16,6 +16,45 @@ Handles hybrid retrieval combining internal vector search with live web search, 
 
 ## Development Guidelines
 
+### ⚠️ MANDATORY: Test-First Development
+
+**YOU MUST WRITE TESTS BEFORE IMPLEMENTATION**
+
+Follow the TDD cycle: 🔴 RED → 🟢 GREEN → 🔵 REFACTOR
+
+**Example: Adding Brave Search Provider**
+```bash
+# 1. Write test FIRST (RED)
+cat > tests/retrieval/test_brave_search.py << 'EOF'
+from src.retrieval.web_search import BraveSearchProvider
+
+@pytest.mark.asyncio
+async def test_brave_search_returns_results():
+    provider = BraveSearchProvider(api_key="test")
+    results = await provider.search("AI safety", top_k=10)
+
+    assert len(results) <= 10
+    assert all(r.source_type == "web" for r in results)
+EOF
+
+# 2. Run and watch fail (RED)
+uv run pytest tests/retrieval/test_brave_search.py -v
+
+# 3. Implement (GREEN)
+# Add BraveSearchProvider to src/retrieval/web_search.py
+
+# 4. Run until pass
+uv run pytest tests/retrieval/test_brave_search.py -v
+
+# 5. Refactor (REFACTOR)
+uv run pytest tests/retrieval/ -v
+```
+
+**Why Test-First?**
+- Web APIs change frequently - tests catch breakage
+- Parallel safety - define interface before implementation
+- Quality - test error handling, rate limits, edge cases
+
 ### Working on Web Search (`web_search.py`)
 **What you can do in parallel:**
 - Add new search providers (Bing, Google, Brave Search)

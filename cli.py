@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
 
 import click
@@ -205,6 +206,135 @@ def test_connection():
         console.print(f"  Primary search: {config.primary_search_provider}")
 
     asyncio.run(_test())
+
+
+@main.group()
+def db():
+    """Database migration commands using Supabase CLI."""
+    pass
+
+
+@db.command()
+def start():
+    """Start local Supabase development environment."""
+    console.print("\n[bold blue]🚀 Starting local Supabase...[/bold blue]\n")
+    
+    try:
+        result = subprocess.run(
+            ["npx", "supabase", "start"],
+            check=True
+        )
+        console.print("[green]✅ Local Supabase started successfully![/green]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]❌ Failed to start local Supabase: {e}[/red]")
+        raise click.ClickException("Failed to start local Supabase")
+
+
+@db.command()
+def stop():
+    """Stop local Supabase development environment."""
+    console.print("\n[bold blue]🛑 Stopping local Supabase...[/bold blue]\n")
+    
+    try:
+        result = subprocess.run(
+            ["npx", "supabase", "stop"],
+            check=True
+        )
+        console.print("[green]✅ Local Supabase stopped successfully![/green]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]❌ Failed to stop local Supabase: {e}[/red]")
+        raise click.ClickException("Failed to stop local Supabase")
+
+
+@db.command()
+def reset():
+    """Reset local database and reapply all migrations."""
+    console.print("\n[bold yellow]🔄 Resetting local database...[/bold yellow]\n")
+    
+    try:
+        result = subprocess.run(
+            ["npx", "supabase", "db", "reset"],
+            check=True
+        )
+        console.print("[green]✅ Database reset completed successfully![/green]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]❌ Database reset failed: {e}[/red]")
+        raise click.ClickException("Database reset failed")
+
+
+@db.command()
+@click.argument("name")
+def create_migration(name: str):
+    """Create a new migration file."""
+    console.print(f"\n[bold blue]📝 Creating migration: {name}[/bold blue]\n")
+    
+    try:
+        result = subprocess.run(
+            ["npx", "supabase", "migration", "new", name],
+            check=True
+        )
+        console.print("[green]✅ Migration file created successfully![/green]")
+        console.print("[yellow]💡 Edit the migration file in supabase/migrations/ before applying![/yellow]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]❌ Failed to create migration: {e}[/red]")
+
+
+@db.command()
+@click.argument("name") 
+def diff(name: str):
+    """Generate migration from local database changes."""
+    console.print(f"\n[bold blue]📊 Generating diff migration: {name}[/bold blue]\n")
+    
+    try:
+        result = subprocess.run(
+            ["npx", "supabase", "db", "diff", "-f", name],
+            check=True
+        )
+        console.print("[green]✅ Diff migration generated successfully![/green]")
+        console.print("[yellow]💡 Review the generated SQL before deploying![/yellow]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]❌ Failed to generate diff: {e}[/red]")
+
+
+@db.command()
+@click.option("--include-seed", is_flag=True, help="Include seed data")
+def push(include_seed: bool):
+    """Push migrations to remote Supabase project."""
+    console.print("\n[bold blue]🚀 Pushing migrations to remote...[/bold blue]\n")
+    
+    cmd = ["npx", "supabase", "db", "push"]
+    if include_seed:
+        cmd.append("--include-seed")
+    
+    try:
+        result = subprocess.run(cmd, check=True)
+        console.print("[green]✅ Migrations pushed successfully![/green]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]❌ Failed to push migrations: {e}[/red]")
+        raise click.ClickException("Migration push failed")
+
+
+@db.command()
+@click.argument("project_ref")
+def link(project_ref: str):
+    """Link to a Supabase project."""
+    console.print(f"\n[bold blue]🔗 Linking to project: {project_ref}[/bold blue]\n")
+    
+    try:
+        result = subprocess.run(
+            ["npx", "supabase", "link", "--project-ref", project_ref],
+            check=True
+        )
+        console.print("[green]✅ Project linked successfully![/green]")
+        
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]❌ Failed to link project: {e}[/red]")
 
 
 if __name__ == "__main__":

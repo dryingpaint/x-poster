@@ -58,6 +58,11 @@ def is_scanned_pdf(pdf_path: str | Path, sample_pages: int = 3) -> bool:
     text_chars = 0
     pages_checked = min(sample_pages, doc.page_count)
 
+    # Handle empty PDFs (0 pages)
+    if pages_checked == 0:
+        doc.close()
+        return True  # Empty PDF treated as scanned
+
     for page_num in range(pages_checked):
         page = doc[page_num]
         text = page.get_text()

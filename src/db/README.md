@@ -16,6 +16,48 @@ Manages all database interactions with Supabase PostgreSQL + pgvector. Handles c
 
 ## Development Guidelines
 
+### ⚠️ MANDATORY: Test-First Development
+
+**YOU MUST WRITE TESTS BEFORE IMPLEMENTATION**
+
+For database operations, tests must run against real PostgreSQL (not mocks).
+
+**TDD Cycle for Database Features:**
+```bash
+# 1. Write test FIRST (RED)
+cat > tests/db/test_batch_operations.py << 'EOF'
+from src.db.operations import insert_chunks_batch
+
+@pytest.mark.asyncio
+async def test_batch_insert_performance():
+    """Test batch insert is faster than individual inserts."""
+    chunks = [create_test_chunk() for _ in range(100)]
+
+    start = time.time()
+    await insert_chunks_batch(chunks)
+    batch_time = time.time() - start
+
+    assert batch_time < 1.0  # Should complete in <1s
+    # Verify all inserted
+    assert await count_chunks() == 100
+EOF
+
+# 2. Run against test database (RED)
+export DATABASE_URL="postgresql://test:test@localhost:5432/test_db"
+uv run pytest tests/db/test_batch_operations.py -v
+
+# 3. Implement batch operation (GREEN)
+# Add insert_chunks_batch() to src/db/operations.py
+
+# 4. Run until pass
+uv run pytest tests/db/test_batch_operations.py -v
+```
+
+**Why Test-First for Database?**
+- **Data integrity**: Tests ensure no data loss/corruption
+- **Performance**: Benchmark before optimization
+- **Compatibility**: Test migrations on real data
+
 ### Working on Database Client (`client.py`)
 **What you can do in parallel:**
 - Add connection pooling optimizations
