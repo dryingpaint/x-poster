@@ -1,14 +1,14 @@
 """Main deterministic pipeline for tweet generation."""
 
 import asyncio
-from typing import Any
 
 from src.core.config import get_config
 from src.core.models import GenerateRequest, GenerateResponse, Source
 from src.db.operations import search_internal
-from src.generation.embeddings import embed_text, embed_batch
+from src.generation.embeddings import embed_batch, embed_text
 from src.generation.evidence import create_evidence_pack
 from src.generation.factcheck import fact_check_tweets
+from src.generation.gap_analysis import analyze_gaps
 from src.generation.writer import generate_tweets
 from src.retrieval.merger import merge_and_dedupe_results
 from src.retrieval.reranker import rerank_results
@@ -19,14 +19,16 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
     """
     Run the full deterministic pipeline for tweet generation.
 
-    Flow:
+    Flow (Internal-First Strategy):
     1. Embed query
-    2. Parallel retrieval: internal (hybrid) + web (search→fetch→extract→embed)
-    3. Merge→dedupe→rerank to final k=8
-    4. Evidence Pack (LLM)
-    5. Writer (LLM) → drafts with [n] markers
-    6. Fact-check (LLM) → guarantee citations present
-    7. Return drafts + source map
+    2. Retrieve from internal dataset (hybrid search)
+    3. Analyze gaps in internal knowledge
+    4. Targeted web search to fill gaps (stats, visuals, recent data)
+    5. Merge→dedupe→rerank to final k=8
+    6. Evidence Pack (LLM)
+    7. Writer (LLM) → drafts with [n] markers
+    8. Fact-check (LLM) → guarantee citations present
+    9. Return drafts + source map
 
     Args:
         request: GenerateRequest with prompt and parameters
@@ -41,27 +43,45 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
     print("🔢 Embedding query...")
     query_embedding = embed_text(request.prompt)
 
-    # Step 2: Parallel retrieval
-    print("🔍 Retrieving from internal and web sources...")
-    internal_task = search_internal(
+    # Step 2: Internal retrieval FIRST (this is our primary knowledge base)
+    print("📚 Retrieving from internal dataset...")
+    internal_results = await search_internal(
         query=request.prompt,
         query_embedding=query_embedding,
         top_k=config.internal_top_k,
     )
-    web_task = search_web(query=request.prompt, top_k=config.web_top_k)
-
-    internal_results, web_results = await asyncio.gather(internal_task, web_task)
-
     print(f"   Found {len(internal_results)} internal results")
-    print(f"   Found {len(web_results)} web results")
 
-    # Fetch full content for web results if needed
-    if web_results:
-        print("🌐 Fetching web content...")
-        web_results = await fetch_and_extract(web_results)
-        print(f"   Extracted content from {len(web_results)} pages")
+    # Step 3: Analyze gaps in internal knowledge
+    print("🔍 Analyzing knowledge gaps...")
+    gap_queries = await analyze_gaps(request.prompt, internal_results)
 
-    # Step 3: Embed all results for deduplication
+    # Step 4: Targeted web search to fill gaps
+    web_results = []
+    if gap_queries:
+        print(f"🌐 Running {len(gap_queries)} targeted web searches...")
+
+        # Run all gap-filling queries in parallel
+        web_tasks = [
+            search_web(query=gap_query, top_k=config.web_top_k // len(gap_queries))
+            for gap_query in gap_queries
+        ]
+
+        web_results_list = await asyncio.gather(*web_tasks)
+
+        # Flatten results from all queries
+        for results in web_results_list:
+            web_results.extend(results)
+
+        print(f"   Found {len(web_results)} web results across all gap queries")
+
+        # Fetch full content for web results if needed
+        if web_results:
+            print("🌐 Fetching web content...")
+            web_results = await fetch_and_extract(web_results)
+            print(f"   Extracted content from {len(web_results)} pages")
+
+    # Step 5: Embed all results for deduplication
     all_results = internal_results + web_results
     if all_results:
         print("🔢 Embedding results...")
@@ -74,8 +94,8 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
         internal_embeddings = []
         web_embeddings = []
 
-    # Step 3b: Merge and dedupe
-    print("🔄 Merging and deduplicating...")
+    # Step 6: Merge and dedupe (prioritizing internal results)
+    print("🔄 Merging and deduplicating (prioritizing internal sources)...")
     merged_results = merge_and_dedupe_results(
         internal_results=internal_results,
         web_results=web_results,
@@ -84,7 +104,7 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
         final_k=config.rerank_k,  # Get more for reranking
     )
 
-    # Step 3c: Rerank
+    # Step 7: Rerank (using original query for relevance)
     print(f"🎯 Reranking {len(merged_results)} results...")
     final_results = rerank_results(
         query=request.prompt, results=merged_results, top_k=config.final_top_k
@@ -92,11 +112,16 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
 
     print(f"   Selected top {len(final_results)} results")
 
+    # Show source breakdown
+    internal_count = sum(1 for r in final_results if r.source_type == "internal")
+    web_count = sum(1 for r in final_results if r.source_type == "web")
+    print(f"   ({internal_count} internal, {web_count} web)")
+
     if not final_results:
         print("⚠️  No results found. Returning empty response.")
         return GenerateResponse(variants=[], thread=[], sources=[])
 
-    # Step 4: Create evidence pack
+    # Step 8: Create evidence pack
     print("📚 Creating evidence pack...")
     evidence = await create_evidence_pack(query=request.prompt, search_results=final_results)
     print(f"   Extracted {len(evidence.facts)} facts")
@@ -105,7 +130,7 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
         print("⚠️  No evidence extracted. Returning empty response.")
         return GenerateResponse(variants=[], thread=[], sources=[])
 
-    # Step 5: Generate tweets
+    # Step 9: Generate tweets
     print("✍️  Generating tweets...")
     variants, thread = await generate_tweets(
         query=request.prompt,
@@ -116,15 +141,15 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
 
     print(f"   Generated {len(variants)} variants and {len(thread)} thread tweets")
 
-    # Step 6: Fact-check
+    # Step 10: Fact-check
     print("✅ Fact-checking...")
     if variants:
         variants = await fact_check_tweets(variants, evidence)
     if thread:
         thread = await fact_check_tweets(thread, evidence)
 
-    # Step 7: Prepare response with sources
-    print("📦 Preparing response...")
+    # Step 11: Prepare response with sources
+    print("📦 Preparing response with source attribution...")
     sources = []
     for source_id, result in evidence.sources.items():
         sources.append(
@@ -143,4 +168,3 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
 
     print("✨ Pipeline complete!")
     return response
-

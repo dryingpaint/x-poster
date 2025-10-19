@@ -8,9 +8,7 @@ from src.core.config import get_config
 from src.core.models import EvidencePack, Tweet
 
 
-async def fact_check_tweets(
-    tweets: list[Tweet], evidence: EvidencePack
-) -> list[Tweet]:
+async def fact_check_tweets(tweets: list[Tweet], evidence: EvidencePack) -> list[Tweet]:
     """
     Fact-check tweets against evidence pack.
 
@@ -33,14 +31,14 @@ async def fact_check_tweets(
     # Prepare evidence for prompt
     evidence_items = []
     for i, fact in enumerate(evidence.facts, 1):
-        evidence_items.append(f"[{i}] {fact.fact}\n   Quote: \"{fact.quote}\"")
+        evidence_items.append(f'[{i}] {fact.fact}\n   Quote: "{fact.quote}"')
 
     evidence_text = "\n\n".join(evidence_items)
 
     # Prepare tweets for checking
     tweets_text = []
     for i, tweet in enumerate(tweets):
-        tweets_text.append(f"Tweet {i+1}: {tweet.text}")
+        tweets_text.append(f"Tweet {i + 1}: {tweet.text}")
 
     tweets_str = "\n".join(tweets_text)
 
@@ -98,9 +96,7 @@ Return corrected tweets (minimal edits only)."""
             original_tweet = tweets[i]
             corrected_text = tweet_data.get("text", original_tweet.text)
 
-            corrected_tweets.append(
-                Tweet(text=corrected_text, citations=original_tweet.citations)
-            )
+            corrected_tweets.append(Tweet(text=corrected_text, citations=original_tweet.citations))
 
         return corrected_tweets
 
@@ -108,4 +104,3 @@ Return corrected tweets (minimal edits only)."""
         print(f"Fact-check failed: {e}")
         # Return original tweets on failure
         return tweets
-

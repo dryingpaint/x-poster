@@ -4,6 +4,7 @@ from .embeddings import get_embedder, embed_text, embed_batch
 from .evidence import create_evidence_pack
 from .writer import generate_tweets
 from .factcheck import fact_check_tweets
+from .gap_analysis import analyze_gaps
 
 __all__ = [
     "get_embedder",
@@ -12,5 +13,6 @@ __all__ = [
     "create_evidence_pack",
     "generate_tweets",
     "fact_check_tweets",
+    "analyze_gaps",
 ]
 

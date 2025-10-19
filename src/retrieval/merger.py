@@ -1,8 +1,6 @@
 """Merge and deduplicate search results from multiple sources."""
 
-import hashlib
 from collections import defaultdict
-from typing import Any
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -17,6 +15,7 @@ def compute_minhash_similarity(text1: str, text2: str, num_hashes: int = 128) ->
 
     Returns similarity score between 0 and 1.
     """
+
     # Simple implementation using character n-grams
     def get_shingles(text: str, n: int = 3) -> set[str]:
         text = text.lower()
@@ -79,9 +78,7 @@ def deduplicate_results(
 
             # Check embedding similarity if available
             if embeddings and i < len(embeddings) and j < len(embeddings):
-                cos_sim = compute_cosine_similarity_from_embeddings(
-                    embeddings[i], embeddings[j]
-                )
+                cos_sim = compute_cosine_similarity_from_embeddings(embeddings[i], embeddings[j])
                 if cos_sim > config.cosine_similarity_threshold:
                     keep[j] = False
                     continue
@@ -124,9 +121,11 @@ def merge_and_dedupe_results(
     """
     Merge internal and web results, deduplicate, and enforce diversity.
 
+    PRIORITIZES internal results by boosting their scores.
+
     Args:
-        internal_results: Results from internal search
-        web_results: Results from web search
+        internal_results: Results from internal search (PRIORITIZED)
+        web_results: Results from web search (gap-filling)
         internal_embeddings: Embeddings for internal results (optional)
         web_embeddings: Embeddings for web results (optional)
         final_k: Final number of results to return
@@ -135,6 +134,11 @@ def merge_and_dedupe_results(
         Merged, deduplicated, and diverse list of results
     """
     config = get_config()
+
+    # Boost internal result scores to prioritize them
+    # Internal sources get a 1.5x multiplier
+    for result in internal_results:
+        result.score = result.score * 1.5
 
     # Merge all results
     all_results = internal_results + web_results
@@ -151,8 +155,7 @@ def merge_and_dedupe_results(
         deduped_results, max_per_domain=config.max_passages_per_domain
     )
 
-    # Sort by score and take top final_k
+    # Sort by score (internal results will rank higher due to boost)
     diverse_results.sort(key=lambda x: x.score, reverse=True)
 
     return diverse_results[:final_k]
-

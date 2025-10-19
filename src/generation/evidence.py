@@ -1,7 +1,6 @@
 """Evidence pack creation using LLM."""
 
 import json
-from datetime import datetime
 
 from openai import AsyncOpenAI
 
@@ -9,9 +8,7 @@ from src.core.config import get_config
 from src.core.models import EvidenceFact, EvidencePack, SearchResult
 
 
-async def create_evidence_pack(
-    query: str, search_results: list[SearchResult]
-) -> EvidencePack:
+async def create_evidence_pack(query: str, search_results: list[SearchResult]) -> EvidencePack:
     """
     Create an evidence pack from search results using LLM.
 
@@ -119,7 +116,4 @@ Return only valid JSON array."""
     except Exception as e:
         print(f"Evidence pack creation failed: {e}")
         # Return empty evidence pack on failure
-        return EvidencePack(
-            facts=[], sources={r.source_id: r for r in search_results}
-        )
-
+        return EvidencePack(facts=[], sources={r.source_id: r for r in search_results})

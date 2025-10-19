@@ -4,15 +4,18 @@ An AI-powered system that generates evidence-based tweets with inline citations 
 
 ## Architecture
 
-- **Orchestrator**: Deterministic async pipeline with three main tools
-- **Retrieval**: Hybrid search (internal: Supabase+pgvector, web: EXA/Serper)
+- **Orchestrator**: Deterministic async pipeline with internal-first retrieval strategy
+- **Retrieval**:
+  - **Primary**: Internal hybrid search (Supabase+pgvector, FTS+vector)
+  - **Gap-Filling**: Targeted web search (EXA/Serper) based on internal gaps
 - **Reranking**: BGE-reranker-large cross-encoder
-- **Generation**: OpenAI for evidence assembly, writing, and fact-checking
+- **Generation**: OpenAI for gap analysis, evidence assembly, writing, and fact-checking
 - **Storage**: Supabase Postgres with pgvector for multimodal data
 
 ## Features
 
-- 🔍 **Hybrid Retrieval**: Combines internal documents (PDF, docs, images) with live web search
+- 🔍 **Internal-First Retrieval**: Prioritizes your documents, uses web to fill gaps
+- 🎯 **Smart Gap Analysis**: LLM identifies missing stats, visuals, or recent data
 - 📊 **Evidence-Based**: Every claim is grounded in retrieved sources
 - 🔗 **Inline Citations**: Numeric citations [1][2] mapped to real URLs
 - ✅ **Fact-Checking**: LLM-based verification against evidence pack
@@ -36,39 +39,28 @@ agent-tweeter/
 └── tests/              # Unit tests
 ```
 
-## Setup
+## Quick Start
 
-### 1. Install Dependencies
+See [QUICKSTART.md](QUICKSTART.md) for a step-by-step guide to get running in minutes.
+
+### TL;DR
 
 ```bash
-# Install uv if you haven't already
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Sync dependencies
-uv sync
-
-# Or install with dev dependencies
+# 1. Install
 uv sync --extra dev
-```
 
-### 2. Configure Environment
-
-```bash
-cp .env.example .env
+# 2. Configure
+cp env.example .env
 # Edit .env with your API keys
-```
 
-### 3. Initialize Database
-
-```bash
-# Run migrations in Supabase SQL editor or via psql
+# 3. Setup database
 psql $DATABASE_URL -f src/db/migrations/001_initial_schema.sql
-```
 
-### 4. Ingest Documents
-
-```bash
+# 4. Ingest documents
 uv run python cli.py ingest --source files/ --kind pdf
+
+# 5. Generate tweets
+uv run python cli.py generate "your prompt here"
 ```
 
 ## Usage

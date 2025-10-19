@@ -7,7 +7,6 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.panel import Panel
-from rich.syntax import Syntax
 
 from src.core.models import GenerateRequest, ItemKind
 from src.orchestrator.pipeline import run_generation_pipeline
@@ -76,7 +75,9 @@ def generate(prompt: str, max_variants: int, max_thread_tweets: int, output: str
 
 
 @main.command()
-@click.option("--source", "-s", required=True, type=click.Path(exists=True), help="Source file or directory")
+@click.option(
+    "--source", "-s", required=True, type=click.Path(exists=True), help="Source file or directory"
+)
 @click.option(
     "--kind",
     "-k",
@@ -89,11 +90,6 @@ def ingest(source: str, kind: str, title: str | None):
     """Ingest documents into the database."""
 
     async def _ingest():
-        from src.db.operations import insert_chunks, insert_item
-        from src.generation.embeddings import embed_batch
-        from src.ingestion.chunker import create_chunks_with_overlap
-        from src.ingestion.pdf_processor import process_pdf_file
-
         source_path = Path(source)
 
         # Handle directory
@@ -140,7 +136,7 @@ def ingest(source: str, kind: str, title: str | None):
             embeddings = embed_batch(chunk_texts)
 
             # Add embeddings to chunks
-            for chunk, embedding in zip(chunks_data, embeddings):
+            for chunk, embedding in zip(chunks_data, embeddings, strict=False):
                 chunk["embedding"] = embedding
 
             # Insert chunks
@@ -209,4 +205,3 @@ def test_connection():
 
 if __name__ == "__main__":
     main()
-

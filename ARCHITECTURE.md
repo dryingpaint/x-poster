@@ -17,27 +17,34 @@ Agent Tweeter is a deterministic pipeline that generates evidence-based tweets w
 ┌──────────────────────────────────────┐
 │       Orchestrator Pipeline          │
 │  (Deterministic, Async)              │
+│  Internal-First Strategy             │
 └──────┬───────────────────────────────┘
        │
        ├─── 1. Embed Query (BGE-M3)
        │
-       ├─── 2. Parallel Retrieval
-       │      ├─ Internal (Hybrid: FTS + Vector)
-       │      └─ Web (EXA/Serper → Fetch → Extract)
+       ├─── 2. Internal Retrieval (PRIMARY)
+       │      └─ Hybrid: FTS + Vector (Supabase)
        │
-       ├─── 3. Merge & Dedupe & Rerank
+       ├─── 3. Gap Analysis (LLM)
+       │      └─ Identify missing: stats, visuals, recent data
+       │
+       ├─── 4. Targeted Web Search (FILL GAPS)
+       │      └─ Multiple specific queries → EXA/Serper
+       │
+       ├─── 5. Merge & Dedupe & Rerank
+       │      ├─ Boost internal sources (1.5x)
        │      └─ Cross-encoder (BGE Reranker)
        │
-       ├─── 4. Evidence Pack (LLM)
+       ├─── 6. Evidence Pack (LLM)
        │      └─ Extract facts + quotes + sources
        │
-       ├─── 5. Writer (LLM)
+       ├─── 7. Writer (LLM)
        │      └─ Generate tweets with [n] citations
        │
-       ├─── 6. Fact-Check (LLM)
+       ├─── 8. Fact-Check (LLM)
        │      └─ Verify claims against evidence
        │
-       └─── 7. Return Response
+       └─── 9. Return Response
             └─ Tweets + Source Map
 ```
 
@@ -60,14 +67,27 @@ Agent Tweeter is a deterministic pipeline that generates evidence-based tweets w
 
 ### 3. Retrieval (`src/retrieval/`)
 
-#### Internal Retrieval
+#### Internal Retrieval (PRIMARY)
 
+- **Priority**: Internal documents are the main knowledge base
 - Full-text search (PostgreSQL tsvector)
 - Vector similarity search (pgvector)
 - Merge top-k from both approaches
+- Results get 1.5x score boost in final ranking
 
-#### Web Retrieval
+#### Gap Analysis (`src/generation/gap_analysis.py`)
 
+- LLM analyzes internal results to identify gaps
+- Generates targeted queries for:
+  - Missing statistics or recent data
+  - Visual evidence (charts, graphs)
+  - Expert opinions or authoritative sources
+  - Current news or developments
+
+#### Web Retrieval (GAP-FILLING)
+
+- **Purpose**: Fill specific gaps identified in internal knowledge
+- Multiple targeted queries (not just one broad search)
 - Primary: EXA (includes clean content)
 - Fallback: Serper (Google SERP) + Trafilatura extraction
 - Parallel fetching with timeout controls
@@ -76,6 +96,7 @@ Agent Tweeter is a deterministic pipeline that generates evidence-based tweets w
 
 - Cross-encoder: BAAI/bge-reranker-large
 - Rerank merged candidates (internal + web)
+- Internal sources already boosted 1.5x
 - Select top-k for evidence assembly
 
 #### Merging & Deduplication
@@ -128,23 +149,31 @@ Agent Tweeter is a deterministic pipeline that generates evidence-based tweets w
 - **Caching**: Redis for web page caching (24h TTL)
 - **Text processing**: Truncation, cleaning, token counting
 
-## Data Flow
+## Data Flow (Internal-First Strategy)
 
 1. **Input**: User prompt
 2. **Query Processing**: Embed prompt with BGE-M3
-3. **Retrieval**:
-   - Internal: Hybrid search (FTS + vector) → top 50
-   - Web: Search → Fetch → Extract → top 50
-4. **Consolidation**:
-   - Merge: 100 candidates
+3. **Internal Retrieval** (PRIMARY):
+   - Hybrid search (FTS + vector) on internal docs → top 50
+4. **Gap Analysis**:
+   - LLM analyzes internal results
+   - Identifies missing information (stats, visuals, recent data)
+   - Generates 2-5 targeted web search queries
+5. **Web Retrieval** (GAP-FILLING):
+   - Run targeted queries in parallel
+   - Search → Fetch → Extract
+   - Focus on filling specific gaps
+6. **Consolidation**:
+   - Merge: Internal + web candidates
+   - Boost: Internal sources get 1.5x score multiplier
    - Embed: Batch embedding for deduplication
    - Dedupe: Remove duplicates and near-duplicates
    - Diversify: Cap passages per domain
-   - Rerank: Cross-encoder to top 12
-5. **Evidence Assembly**: LLM extracts 5-10 facts with quotes
-6. **Generation**: LLM writes tweets with [n] citations
-7. **Verification**: LLM fact-checks against evidence
-8. **Output**: Tweets + source map
+   - Rerank: Cross-encoder to top 8 (internal-weighted)
+7. **Evidence Assembly**: LLM extracts 5-10 facts with quotes
+8. **Generation**: LLM writes tweets with [n] citations
+9. **Verification**: LLM fact-checks against evidence
+10. **Output**: Tweets + source map
 
 ## Configuration
 
@@ -164,6 +193,14 @@ All configuration via environment variables (`.env`):
 - **Concurrency**: Up to 10 parallel web fetches
 
 ## Design Decisions
+
+### Why Internal-First Strategy?
+
+- **Grounding**: Tweets should primarily reflect your curated knowledge
+- **Trust**: Internal documents are vetted, web content is supplementary
+- **Targeted Web Search**: Instead of equal-weight retrieval, web fills specific gaps
+- **Better Attribution**: More citations to internal sources builds authority
+- **Cost Efficiency**: Smaller web search scope reduces API costs
 
 ### Why Hybrid Search?
 
@@ -191,6 +228,13 @@ Combines strengths of:
 - Fact-checker focuses purely on verification
 - Two-stage approach catches more errors
 - Uses cheaper model for fact-checking
+
+### Why Gap Analysis Step?
+
+- **Intelligent Web Search**: Ask specific questions instead of broad queries
+- **Cost Effective**: Fewer, more targeted web searches
+- **Better Results**: Get exactly what's missing (stats, visuals, recent data)
+- **Maintains Focus**: Web content complements rather than dilutes internal knowledge
 
 ### Why Deterministic Pipeline?
 

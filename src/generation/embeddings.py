@@ -4,7 +4,6 @@ from sentence_transformers import SentenceTransformer
 
 from src.core.config import get_config
 
-
 # Global embedder instance (lazy loaded)
 _embedder = None
 
@@ -51,4 +50,3 @@ def embed_batch(texts: list[str], batch_size: int = 32) -> list[list[float]]:
         texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
     )
     return [emb.tolist() for emb in embeddings]
-
