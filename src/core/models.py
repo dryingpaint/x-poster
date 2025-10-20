@@ -166,4 +166,3 @@ class GenerateResponse(BaseModel):
     variants: list[Tweet] = Field(default_factory=list)
     thread: list[Tweet] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
-
