@@ -1,18 +1,19 @@
 """Web search and content extraction."""
 
 import asyncio
-from typing import Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
+import dateparser
 import httpx
 from exa_py import Exa
 from serpapi import GoogleSearch
 from trafilatura import extract
-import dateparser
 
 from src.core.config import get_config
-from src.core.models import SearchResult
+from src.core.models import FilteredWebResult, SearchResult
 
 
 async def search_exa(query: str, num_results: int = 10) -> list[dict[str, Any]]:
@@ -148,7 +149,12 @@ async def search_web(query: str, top_k: int = 50) -> list[SearchResult]:
                     published_at = parsed if isinstance(parsed, datetime) else None
             except Exception:
                 published_at = None
-        
+
+        # Ensure published_at is None if empty string
+        published_at = result.get("published_at")
+        if published_at == "":
+            published_at = None
+
         search_results.append(
             SearchResult(
                 source_id=f"web_{i}_{hash(result['url'])}",
@@ -198,3 +204,47 @@ async def fetch_and_extract(search_results: list[SearchResult]) -> list[SearchRe
     # Filter out results with no content
     return [r for r in search_results if r.content and len(r.content) > 50]
 
+
+async def search_and_filter(
+    query: str,
+    top_k: int = 50,
+    user_context: str | None = None,
+) -> tuple[list[FilteredWebResult], list[SearchResult]]:
+    """
+    Search web and filter results through LLM.
+
+    Args:
+        query: Search query
+        top_k: Number of results to retrieve
+        user_context: Optional context for filtering
+
+    Returns:
+        Tuple of (filtered_results, raw_results)
+        - filtered_results: LLM-filtered results with extracted content
+        - raw_results: Original SearchResult objects (for backward compatibility)
+    """
+    config = get_config()
+
+    # Step 1: Get raw search results
+    search_results = await search_web(query, top_k)
+
+    # Step 2: Fetch full content
+    search_results = await fetch_and_extract(search_results)
+
+    # Step 3: Apply LLM filtering if enabled
+    if config.enable_content_filtering:
+        # Import here to avoid circular dependency
+        from src.retrieval.content_filter import filter_and_download
+
+        filtered_results = await filter_and_download(
+            search_results,
+            query,
+            output_dir=Path(config.media_output_dir),
+            user_context=user_context,
+            max_concurrent=config.max_filter_concurrent,
+        )
+
+        return filtered_results, search_results
+    else:
+        # No filtering, return empty filtered results
+        return [], search_results

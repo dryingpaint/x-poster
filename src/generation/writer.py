@@ -33,7 +33,7 @@ async def generate_tweets(
 
     for i, fact in enumerate(evidence.facts, 1):
         evidence_items.append(
-            f"[{i}] {fact.fact}\n   Quote: \"{fact.quote}\"\n   Source: {fact.title or fact.url or 'Unknown'}"
+            f'[{i}] {fact.fact}\n   Quote: "{fact.quote}"\n   Source: {fact.title or fact.url or "Unknown"}'
         )
         source_map[i] = fact.source_id
 
@@ -76,7 +76,7 @@ Include inline citations [1][2] for every fact. Make it engaging and informative
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

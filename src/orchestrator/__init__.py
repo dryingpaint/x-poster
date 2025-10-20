@@ -1,5 +1,5 @@
-"""Main orchestration pipeline."""
+"""LangGraph agent orchestration."""
 
-from .pipeline import run_generation_pipeline
+from src.orchestrator.agent import create_agent_graph, run_agent
 
-__all__ = ["run_generation_pipeline"]
+__all__ = ["create_agent_graph", "run_agent"]
