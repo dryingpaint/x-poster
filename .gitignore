@@ -63,3 +63,4 @@ tmp/
 uv.lock
 
 files/
+data/

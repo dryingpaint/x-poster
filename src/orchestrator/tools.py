@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.config import get_config
-from src.core.models import SearchResult, Source
+from src.core.models import Source
 from src.db.operations import search_internal
 from src.generation.embeddings import embed_batch, embed_text
 from src.generation.evidence import create_evidence_pack
@@ -89,43 +89,8 @@ async def web_search_node(state: AgentState) -> dict[str, Any]:
             max_concurrent=config.max_filter_concurrent,
         )
 
-        # Convert FilteredWebResult back to SearchResult with filtered content
-        web_results = []
-        for filtered in filtered_results:
-            # Use the LLM-extracted relevant_text instead of raw HTML
-            content = filtered.relevant_text
-
-            # Add key points to content for better context
-            if filtered.key_points:
-                content += "\n\nKey Points:\n" + "\n".join(
-                    f"• {point}" for point in filtered.key_points
-                )
-
-            # Add media context
-            if filtered.media_files:
-                content += "\n\nRelevant Media:\n" + "\n".join(
-                    f"• {m.media_type}: {m.description}" for m in filtered.media_files
-                )
-
-            web_results.append(
-                SearchResult(
-                    source_id=filtered.source_id,
-                    content=content,  # LLM-filtered content
-                    title=filtered.title,
-                    url=filtered.original_url,
-                    author=filtered.author,
-                    published_at=filtered.published_at,
-                    meta={
-                        **filtered.meta,
-                        "credibility_score": filtered.credibility_score,
-                        "relevance_score": filtered.relevance_score,
-                        "media_files": [m.dict() for m in filtered.media_files],
-                        "filtered": True,
-                    },
-                    score=filtered.relevance_score,  # Use LLM relevance as score
-                    source_type="web",
-                )
-            )
+        # Use the filtered results directly (already SearchResult objects)
+        web_results = filtered_results
 
     return {"web_results": web_results}
 
