@@ -6,8 +6,7 @@ from src.core.config import get_config
 from src.core.models import GenerateRequest, GenerateResponse, Source
 from src.db.operations import search_internal, get_chunk_embeddings
 from src.generation.embeddings import embed_batch, embed_text
-from src.generation.evidence import create_evidence_pack
-from src.generation.factcheck import fact_check_tweets
+from src.generation.writer import generate_tweets_from_results
 from src.generation.gap_analysis import analyze_gaps
 from src.generation.writer import generate_tweets
 from src.retrieval.merger import merge_and_dedupe_results
@@ -51,6 +50,15 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
         top_k=config.internal_top_k,
     )
     print(f"   Found {len(internal_results)} internal results")
+    # Debug: print all internal results
+    if internal_results:
+        print("   — Internal results (all):")
+        for idx, r in enumerate(internal_results, 1):
+            preview = (r.content[:200] + "…") if len(r.content) > 200 else r.content
+            print(
+                f"     {idx:02d}. [INT] score={r.score:.3f} title={r.title or '—'} uri={r.source_uri or ''}"
+            )
+            print(f"         {preview}")
 
     # Step 3: Analyze gaps in internal knowledge
     print("🔍 Analyzing knowledge gaps...")
@@ -74,6 +82,15 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
             web_results.extend(results)
 
         print(f"   Found {len(web_results)} web results across all gap queries")
+        # Debug: print all web results
+        if web_results:
+            print("   — Web results (all):")
+            for idx, r in enumerate(web_results, 1):
+                preview = (r.content[:200] + "…") if len(r.content) > 200 else r.content
+                print(
+                    f"     {idx:02d}. [WEB] score={r.score:.3f} title={r.title or '—'} url={r.url or ''}"
+                )
+                print(f"         {preview}")
 
         # Fetch full content for web results if needed
         if web_results:
@@ -110,14 +127,38 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
         web_embeddings=web_embeddings,
         final_k=config.rerank_k,  # Get more for reranking
     )
+    # Debug: print merged results
+    if merged_results:
+        int_count = sum(1 for r in merged_results if r.source_type == "internal")
+        web_count = sum(1 for r in merged_results if r.source_type == "web")
+        print(f"   — Merged (pre-rerank): {len(merged_results)} results ({int_count} internal, {web_count} web)")
+        for idx, r in enumerate(merged_results, 1):
+            tag = "INT" if r.source_type == "internal" else "WEB"
+            preview = (r.content[:180] + "…") if len(r.content) > 180 else r.content
+            print(
+                f"     {idx:02d}. [{tag}] score={r.score:.3f} title={r.title or '—'} uri={r.source_uri or r.url or ''}"
+            )
+            print(f"         {preview}")
 
     # Step 7: Rerank (using original query for relevance)
     print(f"🎯 Reranking {len(merged_results)} results...")
-    final_results = rerank_results(
+    final_results = await rerank_results(
         query=request.prompt, results=merged_results, top_k=config.final_top_k
     )
 
     print(f"   Selected top {len(final_results)} results")
+    # Debug: print final reranked results
+    if final_results:
+        int_count = sum(1 for r in final_results if r.source_type == "internal")
+        web_count = sum(1 for r in final_results if r.source_type == "web")
+        print(f"   — Reranked (final): {len(final_results)} results ({int_count} internal, {web_count} web)")
+        for idx, r in enumerate(final_results, 1):
+            tag = "INT" if r.source_type == "internal" else "WEB"
+            preview = (r.content[:180] + "…") if len(r.content) > 180 else r.content
+            print(
+                f"     {idx:02d}. [{tag}] score={r.score:.3f} title={r.title or '—'} uri={r.source_uri or r.url or ''}"
+            )
+            print(f"         {preview}")
 
     # Show source breakdown
     internal_count = sum(1 for r in final_results if r.source_type == "internal")
@@ -128,40 +169,26 @@ async def run_generation_pipeline(request: GenerateRequest) -> GenerateResponse:
         print("⚠️  No results found. Returning empty response.")
         return GenerateResponse(variants=[], thread=[], sources=[])
 
-    # Step 8: Create evidence pack
-    print("📚 Creating evidence pack...")
-    evidence = await create_evidence_pack(query=request.prompt, search_results=final_results)
-    print(f"   Extracted {len(evidence.facts)} facts")
-
-    if not evidence.facts:
-        print("⚠️  No evidence extracted. Returning empty response.")
-        return GenerateResponse(variants=[], thread=[], sources=[])
-
-    # Step 9: Generate tweets
+    # Step 8: Generate tweets directly from final results (verbatim quotes only)
     print("✍️  Generating tweets...")
-    variants, thread = await generate_tweets(
+    variants, thread = await generate_tweets_from_results(
         query=request.prompt,
-        evidence=evidence,
+        results=final_results,
         max_variants=request.max_variants,
         max_thread_tweets=request.max_thread_tweets,
     )
 
     print(f"   Generated {len(variants)} variants and {len(thread)} thread tweets")
 
-    # Step 10: Fact-check
-    print("✅ Fact-checking...")
-    if variants:
-        variants = await fact_check_tweets(variants, evidence)
-    if thread:
-        thread = await fact_check_tweets(thread, evidence)
+    # Step 9: (Fact-checking skipped without fact layer)
 
-    # Step 11: Prepare response with sources
+    # Step 10: Prepare response with sources
     print("📦 Preparing response with source attribution...")
     sources = []
-    for source_id, result in evidence.sources.items():
+    for result in final_results:
         sources.append(
             Source(
-                source_id=source_id,
+                source_id=result.source_id,
                 title=result.title,
                 url=result.url,
                 source_uri=result.source_uri,

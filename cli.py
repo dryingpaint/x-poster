@@ -201,8 +201,8 @@ def test_connection():
             console.print("[green]✅ Serper API: Configured[/green]")
 
         console.print("\n[bold]Configuration:[/bold]")
-        console.print(f"  Embedding model: {config.embedding_model}")
-        console.print(f"  Reranker model: {config.reranker_model}")
+        console.print(f"  Embedding model: {config.openai_embedding_model} (dim={config.embedding_dim})")
+        console.print(f"  Reranker provider: {config.reranker_provider}")
         console.print(f"  Primary search: {config.primary_search_provider}")
 
     asyncio.run(_test())

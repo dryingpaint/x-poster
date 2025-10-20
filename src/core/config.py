@@ -28,6 +28,10 @@ class Config(BaseSettings):
     embedding_dim: int = 1024              # must match DB vector dimension
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_max_tokens: int = 2000
+    reranker_provider: Literal["local", "cohere", "openai_llm"] = "local"
+    cohere_api_key: str | None = None
+    cohere_rerank_model: str = "rerank-english-v3.0"
+    reranker_llm_model: str = "gpt-4o-mini"
     reranker_model: str = "BAAI/bge-reranker-large"
 
     # Web Search (choose primary; keep both keys for fallback)

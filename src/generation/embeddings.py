@@ -64,18 +64,11 @@ def embed_text(text: str) -> list[float]:
             dimensions=config.embedding_dim,
         )
         vector = resp.data[0].embedding
-        if not _provider_logged:
-            print(f"Embeddings provider: OpenAI {config.openai_embedding_model} (dim={config.embedding_dim})")
-            _provider_logged = True
         return vector
-    except Exception as e:
-        print(f"OpenAI embeddings failed (single): {e}")
+    except Exception:
         # Fallback to local model
         embedder = get_embedder()
         embedding = embedder.encode(text, normalize_embeddings=True)
-        if not _provider_logged:
-            print(f"Embeddings provider: Local SentenceTransformer {get_config().embedding_model}")
-            _provider_logged = True
         return embedding.tolist()
 
 
@@ -99,7 +92,6 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
     all_embeddings: list[list[float]] = []
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i:i + batch_size]
-        print(f"   Processing embeddings {i+1}-{min(i+batch_size, len(texts))} of {len(texts)} (OpenAI)")
         try:
             # Pre-truncate each item by tokens
             enc = tiktoken.get_encoding("cl100k_base")
@@ -117,22 +109,16 @@ def embed_batch(texts: list[str], batch_size: int = 4) -> list[list[float]]:
                 dimensions=config.embedding_dim,
             )
             all_embeddings.extend([item.embedding for item in resp.data])
-        except Exception as e:
-            print(f"OpenAI embeddings failed for batch {i+1}-{min(i+batch_size, len(texts))}: {e}")
+        except Exception:
             # Retry per-item: prefer OpenAI single-call, then fallback to local for that item only
             for t in batch_texts:
                 try:
                     vec = embed_text(t)  # tries OpenAI single, falls back to local if needed
                     all_embeddings.append(vec)
-                except Exception as e_single:
+                except Exception:
                     # Final fallback: local embedding directly
-                    print(f"OpenAI single-call failed; using local for one item: {e_single}")
                     embedder = get_embedder()
                     t_trunc = t[:1500] if len(t) > 1500 else t
                     vec = embedder.encode([t_trunc], batch_size=1, normalize_embeddings=True, show_progress_bar=False)[0]
                     all_embeddings.append(vec.tolist())
-
-    if not _provider_logged:
-        print(f"Embeddings provider: OpenAI {config.openai_embedding_model} (dim={config.embedding_dim})")
-        _provider_logged = True
     return all_embeddings
