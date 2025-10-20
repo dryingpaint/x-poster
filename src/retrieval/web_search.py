@@ -1,16 +1,16 @@
 """Web search and content extraction."""
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime
 from urllib.parse import urlparse
 
+import dateparser
 import httpx
 from exa_py import Exa
 from serpapi import GoogleSearch
 from trafilatura import extract
-import dateparser
 
 from src.core.config import get_config
 from src.core.models import FilteredWebResult, SearchResult
@@ -149,7 +149,7 @@ async def search_web(query: str, top_k: int = 50) -> list[SearchResult]:
                     published_at = parsed if isinstance(parsed, datetime) else None
             except Exception:
                 published_at = None
-        
+
         # Ensure published_at is None if empty string
         published_at = result.get("published_at")
         if published_at == "":
@@ -248,4 +248,3 @@ async def search_and_filter(
     else:
         # No filtering, return empty filtered results
         return [], search_results
-
