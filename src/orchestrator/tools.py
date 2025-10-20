@@ -11,10 +11,8 @@ from src.core.config import get_config
 from src.core.models import SearchResult, Source
 from src.db.operations import search_internal
 from src.generation.embeddings import embed_batch, embed_text
-from src.generation.evidence import create_evidence_pack
-from src.generation.factcheck import fact_check_tweets
 from src.generation.gap_analysis import analyze_gaps
-from src.generation.writer import generate_tweets
+from src.generation.writer import generate_tweets_from_results
 from src.orchestrator.state import AgentState
 from src.retrieval.content_filter import filter_and_download
 from src.retrieval.merger import merge_and_dedupe_results
@@ -163,33 +161,22 @@ async def rerank_node(state: AgentState) -> dict[str, Any]:
     query = state["query"]
     merged_results = state["merged_results"] or []
 
-    final_results = rerank_results(query=query, results=merged_results, top_k=config.final_top_k)
+    final_results = await rerank_results(query=query, results=merged_results, top_k=config.final_top_k)
 
     return {"final_results": final_results}
 
 
-# Node 7: Evidence pack
-async def evidence_pack_node(state: AgentState) -> dict[str, Any]:
-    """Step 8: Create evidence pack from final results using LLM."""
+# Node 7: Tweet generation directly from results
+async def tweet_generation_node(state: AgentState) -> dict[str, Any]:
+    """Step 8: Generate tweets directly from final results using LLM (verbatim quotes only)."""
     query = state["query"]
     final_results = state["final_results"] or []
-
-    evidence = await create_evidence_pack(query, final_results)
-
-    return {"evidence": evidence}
-
-
-# Node 8: Tweet generation
-async def tweet_generation_node(state: AgentState) -> dict[str, Any]:
-    """Step 9: Generate tweet variants and thread using LLM."""
-    query = state["query"]
-    evidence = state["evidence"]
     max_variants = state["max_variants"]
     max_thread_tweets = state["max_thread_tweets"]
 
-    variants, thread = await generate_tweets(
+    variants, thread = await generate_tweets_from_results(
         query=query,
-        evidence=evidence,
+        results=final_results,
         max_variants=max_variants,
         max_thread_tweets=max_thread_tweets,
     )
@@ -197,42 +184,28 @@ async def tweet_generation_node(state: AgentState) -> dict[str, Any]:
     return {"variants": variants, "thread": thread}
 
 
-# Node 9: Fact checking
-async def fact_check_node(state: AgentState) -> dict[str, Any]:
-    """Step 10: Fact-check tweets against evidence."""
-    evidence = state["evidence"]
-    variants = state["variants"] or []
-    thread = state["thread"] or []
-
-    # Fact-check both variants and thread
-    checked_variants = await fact_check_tweets(variants, evidence)
-    checked_thread = await fact_check_tweets(thread, evidence)
-
-    return {"variants": checked_variants, "thread": checked_thread}
-
-
 # Node 10: Prepare response
 async def prepare_response_node(state: AgentState) -> dict[str, Any]:
     """Step 11: Assemble final response with sources."""
     from src.core.models import GenerateResponse
 
-    evidence = state["evidence"]
     variants = state["variants"] or []
     thread = state["thread"] or []
 
-    # Build source list from evidence
+    # Build source list from final_results (match Source model fields)
     sources = []
-    if evidence and evidence.sources:
-        for source_id, source_data in evidence.sources.items():
-            sources.append(
-                Source(
-                    id=source_id,
-                    url=source_data.get("url", ""),
-                    title=source_data.get("title", ""),
-                    domain=source_data.get("domain", ""),
-                    type=source_data.get("type", "web"),
-                )
+    for r in state.get("final_results", []) or []:
+        sources.append(
+            Source(
+                source_id=r.source_id,
+                title=r.title,
+                url=r.url,
+                source_uri=r.source_uri,
+                author=r.author,
+                published_at=r.published_at,
+                meta=r.meta or {},
             )
+        )
 
     response = GenerateResponse(variants=variants, thread=thread, sources=sources)
 

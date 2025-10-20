@@ -10,8 +10,6 @@ from src.core.models import GenerateRequest, GenerateResponse
 from src.orchestrator.state import AgentState
 from src.orchestrator.tools import (
     embed_query_node,
-    evidence_pack_node,
-    fact_check_node,
     gap_analysis_node,
     internal_search_node,
     merge_dedupe_node,
@@ -32,10 +30,8 @@ def create_agent_graph() -> StateGraph:
     4. Web search (parallel for each gap query)
     5. Merge & dedupe
     6. Rerank
-    7. Evidence pack
-    8. Tweet generation
-    9. Fact checking
-    10. Prepare response
+    7. Tweet generation (from results)
+    8. Prepare response
 
     Returns:
         Compiled StateGraph ready for execution
@@ -50,9 +46,7 @@ def create_agent_graph() -> StateGraph:
     graph.add_node("web_search", web_search_node)
     graph.add_node("merge_dedupe", merge_dedupe_node)
     graph.add_node("rerank", rerank_node)
-    graph.add_node("evidence_pack", evidence_pack_node)
     graph.add_node("tweet_generation", tweet_generation_node)
-    graph.add_node("fact_check", fact_check_node)
     graph.add_node("prepare_response", prepare_response_node)
 
     # Define the linear pipeline flow
@@ -62,10 +56,8 @@ def create_agent_graph() -> StateGraph:
     graph.add_edge("gap_analysis", "web_search")
     graph.add_edge("web_search", "merge_dedupe")
     graph.add_edge("merge_dedupe", "rerank")
-    graph.add_edge("rerank", "evidence_pack")
-    graph.add_edge("evidence_pack", "tweet_generation")
-    graph.add_edge("tweet_generation", "fact_check")
-    graph.add_edge("fact_check", "prepare_response")
+    graph.add_edge("rerank", "tweet_generation")
+    graph.add_edge("tweet_generation", "prepare_response")
     graph.add_edge("prepare_response", END)
 
     # Compile the graph
@@ -98,7 +90,7 @@ async def run_agent(request: GenerateRequest) -> GenerateResponse:
         "web_results": None,
         "merged_results": None,
         "final_results": None,
-        "evidence": None,
+        # no evidence layer in the new workflow
         "variants": None,
         "thread": None,
         "response": None,
