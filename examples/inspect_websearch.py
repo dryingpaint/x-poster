@@ -209,7 +209,7 @@ async def test_node_with_filtering(gap_queries: list[str], query: str, top_k: in
             result = filtered_results[0]
 
             console.print(f"[bold cyan]{result.title}[/bold cyan]")
-            console.print(f"[dim]URL: {result.original_url}[/dim]")
+            console.print(f"[dim]URL: {result.url}[/dim]")
             console.print(
                 f"[dim]Relevance: {result.relevance_score:.2f} | Credibility: {result.credibility_score:.2f}[/dim]\n"
             )
@@ -217,9 +217,7 @@ async def test_node_with_filtering(gap_queries: list[str], query: str, top_k: in
             console.print("[yellow]Extracted Relevant Text:[/yellow]")
             console.print(
                 Panel(
-                    result.relevant_text[:500] + "..."
-                    if len(result.relevant_text) > 500
-                    else result.relevant_text,
+                    result.content[:500] + "..." if len(result.content) > 500 else result.content,
                     border_style="green",
                 )
             )
@@ -232,7 +230,11 @@ async def test_node_with_filtering(gap_queries: list[str], query: str, top_k: in
             if result.media_files:
                 console.print(f"\n[yellow]Media Files ({len(result.media_files)}):[/yellow]")
                 for media in result.media_files[:3]:
-                    console.print(f"  • {media.media_type}: {media.description[:80]}")
+                    console.print(f"  • {media.media_type}: {media.description}")
+                    if media.context:
+                        console.print(f"    [dim]Context: {media.context}[/dim]")
+                    if media.source_url:
+                        console.print(f"    [dim]Source: {media.source_url}[/dim]")
                     if media.local_path:
                         console.print(f"    [dim]Downloaded to: {media.local_path}[/dim]")
     else:

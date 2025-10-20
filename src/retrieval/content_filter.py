@@ -5,20 +5,19 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import httpx
 from openai import AsyncOpenAI
 
 from src.core.config import get_config
-from src.core.models import FilteredWebResult, MediaFile, SearchResult
+from src.core.models import MediaFile, SearchResult
 
 
 async def extract_relevant_content(
     search_result: SearchResult,
     query: str,
     user_context: str | None = None,
-) -> FilteredWebResult:
+) -> SearchResult:
     """
     Use LLM to extract relevant information from web search result.
 
@@ -28,7 +27,7 @@ async def extract_relevant_content(
         user_context: Optional context about what the user is looking for
 
     Returns:
-        FilteredWebResult with extracted text and media references
+        SearchResult with populated structured fields (key_points, media_files, scores)
     """
     config = get_config()
     client = AsyncOpenAI(api_key=config.openai_api_key)
@@ -39,7 +38,7 @@ async def extract_relevant_content(
     prompt = f"""You are analyzing a web page to extract information relevant to this query:
 Query: {query}{context_note}
 
-Page Title: {search_result.title or 'Unknown'}
+Page Title: {search_result.title or "Unknown"}
 Page URL: {search_result.url}
 Page Content:
 {search_result.content[:8000]}
@@ -80,50 +79,57 @@ Be comprehensive but focused. Extract everything useful for answering the query.
         extracted = json.loads(content)
 
         # Create MediaFile objects for media descriptions
+        # Try to match with actual image URLs from EXA if available
+        image_urls = search_result.meta.get("image_urls", [])
         media_files = []
+
         for i, media_desc in enumerate(extracted.get("media_descriptions", [])):
+            # Use actual image URL if available (from EXA), otherwise None
+            source_url = image_urls[i] if i < len(image_urls) else None
+
             media_files.append(
                 MediaFile(
                     media_id=f"{search_result.source_id}_media_{i}",
                     media_type=media_desc.get("type", "unknown"),
                     description=media_desc.get("description", ""),
                     context=media_desc.get("context", ""),
-                    source_url=search_result.url,
+                    source_url=source_url,  # Real image URL from EXA!
                     local_path=None,  # Will be populated during download
                 )
             )
 
-        return FilteredWebResult(
+        # Return SearchResult with populated structured fields
+        return SearchResult(
             source_id=search_result.source_id,
-            original_url=search_result.url,
+            content=extracted.get("relevant_text", ""),  # LLM-extracted relevant text
             title=search_result.title,
+            url=search_result.url,
             author=search_result.author,
             published_at=search_result.published_at,
-            relevant_text=extracted.get("relevant_text", ""),
+            meta={**search_result.meta, "extracted_at": datetime.utcnow().isoformat()},
+            score=float(extracted.get("relevance_score", 0.5)),
+            source_type="web",
             key_points=extracted.get("key_points", []),
             media_files=media_files,
             credibility_score=float(extracted.get("credibility_score", 0.5)),
             relevance_score=float(extracted.get("relevance_score", 0.5)),
-            meta=search_result.meta,
-            extracted_at=datetime.utcnow(),
         )
 
     except Exception as e:
         print(f"Content extraction failed for {search_result.url}: {e}")
-        # Fallback: return original content with minimal processing
-        return FilteredWebResult(
+        # Fallback: return original with minimal changes (just truncate content)
+        return SearchResult(
             source_id=search_result.source_id,
-            original_url=search_result.url,
+            content=search_result.content[:2000],  # Truncate
             title=search_result.title,
+            url=search_result.url,
             author=search_result.author,
             published_at=search_result.published_at,
-            relevant_text=search_result.content[:2000],  # Truncate
-            key_points=[],
-            media_files=[],
+            meta={**search_result.meta, "filter_failed": True},
+            score=0.5,
+            source_type="web",
             credibility_score=0.5,
             relevance_score=0.5,
-            meta=search_result.meta,
-            extracted_at=datetime.utcnow(),
         )
 
 
@@ -198,7 +204,7 @@ async def filter_and_download(
     output_dir: Path | str = "data/media",
     user_context: str | None = None,
     max_concurrent: int = 5,
-) -> list[FilteredWebResult]:
+) -> list[SearchResult]:
     """
     Filter multiple search results through LLM and download media files.
 
@@ -210,7 +216,7 @@ async def filter_and_download(
         max_concurrent: Max concurrent operations
 
     Returns:
-        List of filtered results with downloaded media
+        List of SearchResults with populated structured fields and downloaded media
     """
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
@@ -218,7 +224,7 @@ async def filter_and_download(
     # Extract relevant content from all results
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def extract_with_limit(result: SearchResult) -> FilteredWebResult:
+    async def extract_with_limit(result: SearchResult) -> SearchResult:
         async with semaphore:
             return await extract_relevant_content(result, query, user_context)
 
@@ -228,13 +234,14 @@ async def filter_and_download(
     )
 
     # Filter out exceptions
-    valid_results = [r for r in filtered_results if isinstance(r, FilteredWebResult)]
+    valid_results = [r for r in filtered_results if isinstance(r, SearchResult)]
 
-    # Download all media files
+    # Download all media files (only if they have source URLs)
     download_tasks = []
     for result in valid_results:
         for media in result.media_files:
-            download_tasks.append(download_media_file(media, output_dir))
+            if media.source_url:  # Only download if we have an actual media URL
+                download_tasks.append(download_media_file(media, output_dir))
 
     if download_tasks:
         await asyncio.gather(*download_tasks, return_exceptions=True)
@@ -242,58 +249,15 @@ async def filter_and_download(
     return valid_results
 
 
-def format_for_agent_history(filtered_result: FilteredWebResult) -> str:
+def format_for_agent_history(result: SearchResult) -> str:
     """
-    Format filtered result as text for agent message history.
+    Format search result as text for agent message history.
 
     Args:
-        filtered_result: Filtered web result
+        result: Search result (potentially with LLM-filtered fields)
 
     Returns:
         Formatted string for message history
     """
-    lines = []
-
-    # Header
-    lines.append(f"## {filtered_result.title or 'Web Source'}")
-    lines.append(f"**URL**: {filtered_result.original_url}")
-
-    if filtered_result.author:
-        lines.append(f"**Author**: {filtered_result.author}")
-
-    if filtered_result.published_at:
-        lines.append(f"**Published**: {filtered_result.published_at.strftime('%Y-%m-%d')}")
-
-    lines.append(f"**Relevance**: {filtered_result.relevance_score:.2f}")
-    lines.append(f"**Credibility**: {filtered_result.credibility_score:.2f}")
-    lines.append("")
-
-    # Relevant text
-    lines.append("### Extracted Content")
-    lines.append(filtered_result.relevant_text)
-    lines.append("")
-
-    # Key points
-    if filtered_result.key_points:
-        lines.append("### Key Points")
-        for point in filtered_result.key_points:
-            lines.append(f"- {point}")
-        lines.append("")
-
-    # Media files
-    if filtered_result.media_files:
-        lines.append("### Media Files")
-        for media in filtered_result.media_files:
-            if media.local_path:
-                lines.append(f"- **{media.media_type.capitalize()}**: {media.description}")
-                lines.append(f"  - File: `{media.local_path}`")
-                if media.context:
-                    lines.append(f"  - Context: {media.context}")
-            else:
-                lines.append(f"- **{media.media_type.capitalize()}** (not downloaded): {media.description}")
-        lines.append("")
-
-    lines.append("---")
-    lines.append("")
-
-    return "\n".join(lines)
+    # Use the built-in to_context_text method
+    return result.to_context_text(include_metadata=True)
